@@ -8,7 +8,7 @@ import { Appearance, LOCAL_OVERRIDES, LOCAL_PACKS, type AppearanceDoc } from '..
 import { ModelLibrary, type ClipRole } from '../render/models';
 import { TextureLibrary } from '../render/textures';
 import { useMetricWorld, WORLD } from '../render/world-scale';
-import { EMPTY_CATALOG, isEditable, STATUS_LABEL, search, statusOf, type CatalogEntry, type CatalogKind, type EditorCatalog, type Status } from './catalog';
+import { EMPTY_CATALOG, type CatalogIndex, isEditable, STATUS_LABEL, search, statusOf, type CatalogEntry, type CatalogKind, type EditorCatalog, type Status } from './catalog';
 import { esc, measureHtml, readForm, renderInspector } from './inspector';
 import { editedObjects, emptyDoc, readEdit, removeEdit, writeEdit, type Edit, type EditKind, type OverrideDoc } from './overrides';
 import { Stage, type Measure, type View } from './stage';
@@ -48,12 +48,16 @@ let appearance = makeAppearance(saved);
 useMetricWorld(new URLSearchParams(location.search).get('world') === 'metric');
 const textures = new TextureLibrary(appearance.textures);
 const models = new ModelLibrary(appearance);
-const catalog: EditorCatalog = { ...EMPTY_CATALOG, ...((await fetchJson<EditorCatalog>('/api/editor/catalog')) ?? {}) };
+// The CDDA object catalog: pre-built per CDDA version (tools/editor/catalog.mjs --write).
+const catalogIndex = await fetchJson<CatalogIndex>('/data/cdda/index.json');
+const catalogVersion = catalogIndex?.versions.find((v) => v.id === new URLSearchParams(location.search).get('cdda')) ?? catalogIndex?.versions[0];
+const catalog: EditorCatalog = { ...EMPTY_CATALOG, ...((catalogVersion && (await fetchJson<EditorCatalog>(`/data/cdda/${catalogVersion.path}`))) ?? {}) };
 const ctx = { get appearance() { return appearance; }, models, textures };
 const stage = new Stage($<HTMLCanvasElement>('#ed-canvas'), appearance, models, textures);
 
 $('#ed-world').textContent = `墙高 ${WORLD.wallHeight} 格 · 人高 ${WORLD.personHeight} 格`;
 $('#ed-pack').textContent = `基础素材 · ${appearance.modelCount} 个模型`;
+$('#ed-cdda').textContent = catalogVersion ? `CDDA ${catalogVersion.cdda}` : '未找到 CDDA 对象表';
 
 // ── State ───────────────────────────────────────────────────────────────────────────────
 const params = new URLSearchParams(location.search);

@@ -1,0 +1,24 @@
+{
+  "versions": [
+    {
+      "id": "experimental-2026-11-14",
+      "path": "experimental-2026-11-14/catalog.json",
+      "cdda": "experimental-2026-11-14",
+      "commit": "7136388ca55f1917de99c74a31ff5955d719a50d",
+      "translations": "cdda-experimental-2026-11-14-0749",
+      "lang": "zh_CN",
+      "generated": "2026-11-16",
+      "counts": {
+        "ter": 1271,
+        "furn": 713,
+        "item": 10270,
+        "monster": 1203,
+        "vehicle": 256,
+        "vpart": 483,
+        "field": 172,
+        "trap": 150
+      },
+      "license": "Derived from Cataclysm: Dark Days Ahead data (https://github.com/CleverRaven/Cataclysm-DDA), CC BY-SA 3.0."
+    }
+  ]
+}

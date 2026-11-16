@@ -34,6 +34,13 @@ function identity(kind: CatalogKind | 'model', e: CatalogEntry, branch: string):
   if (e.body) rows.push(['体型', esc(e.body)]);
   if (e.size) rows.push(['尺寸等级', `${e.size}（${SIZE_NAMES[e.size] ?? ''}）`]);
   if (e.length) rows.push(['车身', `${e.length} × ${e.width} 格`]);
+  if (e.types?.length) rows.push(['物品类型', `<span class="mono">${esc(e.types.join(', '))}</span>`]);
+  if (e.volume !== undefined) rows.push(['体积', e.volume >= 1000 ? `${fmt(e.volume / 1000, 2)} L` : `${fmt(e.volume, 0)} ml`]);
+  if (e.weight !== undefined) rows.push(['重量', e.weight >= 1000 ? `${fmt(e.weight / 1000, 2)} kg` : `${fmt(e.weight, 1)} g`]);
+  if (e.longestSide !== undefined) rows.push(['最长边', `${fmt(e.longestSide / 10, 1)} cm${e.longestSideDefault ? '（按体积估算）' : ''}`]);
+  if (e.requiredStr !== undefined) rows.push(['拖动所需力量', String(e.requiredStr)]);
+  if (e.variants?.length) rows.push(['变体', esc(e.variants.map((v) => v.name).join('、'))]);
+  if (e.file) rows.push(['定义文件', `<span class="mono">data/json/${esc(e.file)}</span>`]);
   if (e.looksLike) rows.push(['looks_like', `<span class="mono">${esc(e.looksLike)}</span>`]);
   if (e.color && kind !== 'model') rows.push(['颜色', `<span class="mono">${esc(e.color)}</span>`]);
   const flags = e.flags?.length ? `<details><summary>标志 ${e.flags.length} 个</summary><div class="chips">${e.flags.map((f) => `<span class="chip">${esc(f)}</span>`).join('')}</div></details>` : '';

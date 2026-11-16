@@ -1,14 +1,11 @@
-// Dev-server endpoints for the model editor (editor.html):
-//   GET /api/editor/catalog    → CDDA objects (tools/editor/catalog.mjs), built once per server
+// Dev-server endpoints for the studio (index.html):
 //   GET /api/editor/overrides  → public/data/appearance.local.json (or an empty document)
 //   PUT /api/editor/overrides  → validate and write it (git-ignored, local only)
-// The game loads appearance.local.json as the last appearance overlay, so what the editor
-// saves is what the game shows.
+// The CDDA object catalog is a static file (public/data/cdda, tools/editor/catalog.mjs --write).
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-import { buildCatalog, cddaPaths } from './catalog.mjs';
 
 const KINDS = new Set(['ter', 'furn', 'item', 'monster', 'vehicle']);
 const ID = /^[A-Za-z0-9_:.|-]+$/;
@@ -64,20 +61,9 @@ export function validateOverrides(doc) {
 }
 
 export function editorPlugin({ root, overridesPath = join(root, 'public/data/appearance.local.json') } = {}) {
-  const { jsonRoot, mo } = cddaPaths(root);
-  let catalog = null;
   return {
     name: 'cdda-model-studio',
     configureServer(server) {
-      server.middlewares.use('/api/editor/catalog', (req, res) => {
-        if (req.method !== 'GET') return send(res, 405, { error: 'method not allowed' });
-        try {
-          catalog ??= buildCatalog(jsonRoot, mo);
-          send(res, 200, catalog);
-        } catch (error) {
-          send(res, 500, { error: error.message });
-        }
-      });
       server.middlewares.use('/api/editor/overrides', async (req, res) => {
         try {
           if (req.method === 'GET') {

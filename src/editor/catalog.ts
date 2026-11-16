@@ -29,6 +29,24 @@ export interface CatalogEntry extends Describable {
   phase?: string;
   /** Traps: never visible (script triggers). */
   hidden?: boolean;
+  /** Translation context of the name, when it has one. */
+  ctxt?: string;
+  /** Source file under data/json. */
+  file?: string;
+  /** Items: JSON type and subtypes (GUN, ARMOR, TOOL…). */
+  types?: string[];
+  /** Items and monsters: volume in ml, weight in g. */
+  volume?: number;
+  weight?: number;
+  /** Items: longest side in mm; `longestSideDefault` when CDDA derives it from the volume. */
+  longestSide?: number;
+  longestSideDefault?: boolean;
+  /** Items: named variants (the same item id in other looks). */
+  variants?: { id: string; name: string; en: string }[];
+  /** Furniture: strength needed to drag it. */
+  requiredStr?: number;
+  /** Vehicle parts: the item the part is made from. */
+  item?: string;
 }
 
 /** Every object kind in the catalog: the editable ones plus vehicle parts, fields and traps. */
@@ -42,6 +60,11 @@ export interface CatalogLabels {
 }
 
 export type EditorCatalog = Record<CatalogKind, CatalogEntry[]> & { labels: CatalogLabels };
+
+/** public/data/cdda/index.json: the generated catalogs, newest first. */
+export interface CatalogIndex {
+  versions: { id: string; path: string; cdda: string; commit?: string; translations?: string; lang: string; generated: string; counts: Record<string, number> }[];
+}
 
 export const EMPTY_CATALOG: EditorCatalog = { ter: [], furn: [], item: [], monster: [], vehicle: [], vpart: [], field: [], trap: [], labels: { itemCat: {}, vpartCat: {} } };
 
