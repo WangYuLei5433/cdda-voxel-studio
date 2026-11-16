@@ -1,17 +1,10 @@
 // Dev-server endpoints for the studio (index.html):
-//   GET /api/editor/overrides  → public/data/appearance.local.json (or an empty document)
-//   PUT /api/editor/overrides  → validate and write it (git-ignored, local only)
 //   GET /api/voxel/sets        → names of the voxel sets under vendor/voxel/ (folders with voxelset.json)
 //   GET /voxel/<set>/<file>    → a file of one of those sets
 // The CDDA object catalog is a static file (public/data/cdda, tools/editor/catalog.mjs --write).
 import { existsSync, readdirSync, statSync } from 'node:fs';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { dirname, join, normalize, sep } from 'node:path';
-
-
-const KINDS = new Set(['ter', 'furn', 'item', 'monster', 'vehicle']);
-const ID = /^[A-Za-z0-9_:.|-]+$/;
-const NUMBER_FIELDS = ['scale', 'fit', 'y', 'rotX', 'rotY', 'rotZ'];
+import { readFile } from 'node:fs/promises';
+import { join, normalize, sep } from 'node:path';
 
 function send(res, status, payload) {
   res.statusCode = status;
@@ -20,53 +13,11 @@ function send(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
-function readBody(req, limit = 4 * 1024 * 1024) {
-  return new Promise((ok, fail) => {
-    let body = '';
-    req.setEncoding('utf8');
-    req.on('data', (chunk) => {
-      body += chunk;
-      if (body.length > limit) fail(new Error('request body is too large'));
-    });
-    req.on('end', () => ok(body));
-    req.on('error', fail);
-  });
-}
-
-/** Check an override document; returns a clean copy or throws with the reason. */
-export function validateOverrides(doc) {
-  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) throw new Error('document must be an object');
-  const models = {};
-  for (const [key, entry] of Object.entries(doc.models ?? {})) {
-    if (!ID.test(key)) throw new Error(`bad model key: ${key}`);
-    if (!entry || typeof entry !== 'object' || typeof entry.url !== 'string' || !entry.url) throw new Error(`model ${key} needs a url`);
-    for (const f of NUMBER_FIELDS) {
-      if (entry[f] !== undefined && !Number.isFinite(entry[f])) throw new Error(`model ${key}: ${f} must be a number`);
-    }
-    if (entry.scale !== undefined && entry.scale <= 0) throw new Error(`model ${key}: scale must be positive`);
-    models[key] = { ...entry, override: true };
-  }
-  const rules = [];
-  for (const [i, rule] of (doc.rules ?? []).entries()) {
-    if (!rule || !KINDS.has(rule.kind)) throw new Error(`rule ${i}: bad kind`);
-    if (typeof rule.id !== 'string') throw new Error(`rule ${i}: id pattern required`);
-    try {
-      new RegExp(rule.id);
-    } catch {
-      throw new Error(`rule ${i}: invalid id pattern`);
-    }
-    if (typeof rule.model !== 'string' || !ID.test(rule.model)) throw new Error(`rule ${i}: bad model key`);
-    if (rule.scale !== undefined && !(Number.isFinite(rule.scale) && rule.scale > 0)) throw new Error(`rule ${i}: scale must be positive`);
-    rules.push({ kind: rule.kind, id: rule.id, model: rule.model, ...(rule.scale !== undefined ? { scale: rule.scale } : {}), ...(rule.tint ? { tint: true } : {}), override: true });
-  }
-  return { models, rules };
-}
-
-export function editorPlugin({ root, overridesPath = join(root, 'public/data/appearance.local.json') } = {}) {
+export function editorPlugin({ root } = {}) {
+  const voxelRoot = join(root, 'vendor/voxel');
   return {
     name: 'cdda-model-studio',
     configureServer(server) {
-      const voxelRoot = join(root, 'vendor/voxel');
       server.middlewares.use('/api/voxel/sets', (req, res) => {
         if (req.method !== 'GET') return send(res, 405, { error: 'method not allowed' });
         const sets = existsSync(voxelRoot) ? readdirSync(voxelRoot, { withFileTypes: true }).filter((d) => d.isDirectory() && existsSync(join(voxelRoot, d.name, 'voxelset.json'))).map((d) => d.name).sort() : [];
@@ -77,30 +28,10 @@ export function editorPlugin({ root, overridesPath = join(root, 'public/data/app
         const rel = normalize(decodeURIComponent((req.url ?? '').split('?')[0])).replace(/^[/\\]+/, '');
         const file = join(voxelRoot, rel);
         if (req.method !== 'GET' || !file.startsWith(voxelRoot + sep) || rel.split(/[/\\]/).includes('..') || !existsSync(file) || !statSync(file).isFile()) return send(res, 404, { error: 'not found' });
-        const type = file.endsWith('.json') ? 'application/json; charset=utf-8' : 'application/octet-stream';
         res.statusCode = 200;
-        res.setHeader('Content-Type', type);
+        res.setHeader('Content-Type', file.endsWith('.json') ? 'application/json; charset=utf-8' : 'application/octet-stream');
         res.setHeader('Cache-Control', 'no-store');
         res.end(await readFile(file));
-      });
-      server.middlewares.use('/api/editor/overrides', async (req, res) => {
-        try {
-          if (req.method === 'GET') {
-            const doc = existsSync(overridesPath) ? JSON.parse(await readFile(overridesPath, 'utf8')) : { models: {}, rules: [] };
-            return send(res, 200, validateOverrides(doc));
-          }
-          if (req.method === 'PUT') {
-            const doc = validateOverrides(JSON.parse(await readBody(req)));
-            await mkdir(dirname(overridesPath), { recursive: true });
-            const tmp = `${overridesPath}.tmp`;
-            await writeFile(tmp, `${JSON.stringify(doc, null, 2)}\n`, 'utf8');
-            await rename(tmp, overridesPath);
-            return send(res, 200, doc);
-          }
-          send(res, 405, { error: 'method not allowed' });
-        } catch (error) {
-          send(res, 400, { error: error.message });
-        }
       });
     },
   };

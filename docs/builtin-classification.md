@@ -16,7 +16,7 @@ cataclysm-3d（Risaro 的项目）按以下顺序给对象找模型：
 要在我们的工具里正确预览"某个对象在他的游戏里长什么样"，就得知道每个对象属于哪个原型、哪种材质。例如：
 
 - `mon_zombie_fat` → `zombie`
-- `fire_axe` → `item_blade`
+- `fire_ax` → `item_blade`
 - `t_wall_b` → `wall` + `brick`
 
 ## 为什么拿不到现成的表
@@ -48,7 +48,7 @@ cataclysm-3d（Risaro 的项目）按以下顺序给对象找模型：
 ```json
 { "monster": { "mon_zombie_fat": { "builtin": "zombie" } },
   "ter": { "t_wall_b": { "builtin": "wall", "material": "brick" } },
-  "item": { "fire_axe": { "builtin": "item_blade" } } }
+  "item": { "fire_ax": { "builtin": "item_blade" } } }
 ```
 
 这件事不需要 Risaro 本人来做。他的项目开源，我们可以自己做：

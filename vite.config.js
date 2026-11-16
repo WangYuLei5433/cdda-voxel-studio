@@ -9,13 +9,11 @@ const ROOT = dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   plugins: [editorPlugin({ root: ROOT })],
   optimizeDeps: {
-    include: ['three', 'three/examples/jsm/controls/OrbitControls.js', 'three/examples/jsm/loaders/GLTFLoader.js', 'three/examples/jsm/utils/SkeletonUtils.js', 'three/examples/jsm/utils/BufferGeometryUtils.js'],
+    include: ['three', 'three/examples/jsm/controls/OrbitControls.js'],
   },
   server: {
     host: '127.0.0.1',
     port: 5180,
-    // The studio writes this file and applies it itself (no page reload).
-    watch: { ignored: ['**/public/data/appearance.local.json'] },
   },
   build: { target: 'es2022' },
 });

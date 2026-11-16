@@ -1,11 +1,9 @@
-// Catalog objects for the model editor (from /api/editor/catalog, tools/editor/catalog.mjs)
-// and how each one is shown in the game: its resolution status and search.
-import type { Appearance, Describable } from '../render/appearance';
-import { planMonster, type MonsterPlan } from '../render/creature-plan';
-import type { EditKind } from './overrides';
+// CDDA objects for the studio (public/data/cdda, tools/editor/catalog.mjs): their fields,
+// names per language, display status and search.
 import { t } from './i18n';
 
-export interface CatalogEntry extends Describable {
+export interface CatalogEntry {
+  id: string;
   /** Display name (Chinese when translated). */
   name: string;
   en: string;
@@ -56,7 +54,7 @@ export interface CatalogEntry extends Describable {
 }
 
 /** Every object kind in the catalog: the editable ones plus vehicle parts, fields and traps. */
-export type CatalogKind = EditKind | 'vpart' | 'field' | 'trap';
+export type CatalogKind = 'ter' | 'furn' | 'item' | 'monster' | 'vehicle' | 'vpart' | 'field' | 'trap';
 
 export interface CatalogLabels {
   /** Item category id → name. */
@@ -109,50 +107,14 @@ export const EMPTY_CATALOG: EditorCatalog = { ter: [], furn: [], item: [], monst
 
 export const KIND_LABEL: Record<CatalogKind, string> = { ter: t('地形'), furn: t('家具'), item: t('物品'), monster: t('生物'), vehicle: t('载具'), vpart: t('载具部件'), field: t('场地效果'), trap: t('陷阱') };
 
-/** Kinds whose look the editor can change (the game resolves a model for them). */
-export const isEditable = (kind: string): kind is EditKind => ['ter', 'furn', 'item', 'monster', 'vehicle'].includes(kind);
-
-/** How an object is drawn, summarised for the list. */
-export type Status = 'voxel' | 'override' | 'fallback' | 'base' | 'texture' | 'procedural' | 'hidden' | 'none';
+/** How an object is shown, summarised for the list. */
+export type Status = 'voxel' | 'none' | 'library';
 
 export const STATUS_LABEL: Record<Status, string> = {
   voxel: t('体素模型'),
-  override: t('本地覆盖'),
-  fallback: t('材质回退'),
-  base: t('基础模型'),
-  texture: t('仅贴图'),
-  procedural: t('程序生成'),
-  hidden: t('游戏中不显示'),
-  none: t('无模型'),
+  none: t('无体素模型'),
+  library: t('素材集文件'),
 };
-
-/** The status of one object, by the same resolution the game uses. */
-export function statusOf(kind: CatalogKind, entry: CatalogEntry, appearance: Appearance, plan?: MonsterPlan): Status {
-  // Drawn by the map layer without a model lookup (src/render/map-layer.ts).
-  if (kind === 'vpart') return 'procedural';
-  if (kind === 'trap') return 'hidden';
-  if (kind === 'field') {
-    const t = appearance.textureFor('field', entry);
-    return t ? 'texture' : 'procedural';
-  }
-  const why = appearance.explain(kind, entry);
-  if (why.via === 'override') return 'override';
-  if (kind === 'monster') {
-    const p = plan ?? planMonster(monsterInfo(entry), 0, appearance);
-    if (p.kind === 'placeholder') return 'none';
-  }
-  const key = why.resolved?.model.split('|')[0];
-  if (key) {
-    if (appearance.model(key)?.fallback) return 'fallback';
-    return 'base';
-  }
-  return why.texture ? 'texture' : 'none';
-}
-
-/** A catalog monster as the creature plan wants it. */
-export function monsterInfo(entry: CatalogEntry) {
-  return { ...entry, species: [entry.species ?? []].flat(), body: String(entry.body ?? ''), size: entry.size ?? 3 };
-}
 
 /** Search: every word must appear in the id, the name or the English name. */
 export function matches(entry: CatalogEntry, query: string): boolean {

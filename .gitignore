@@ -10,10 +10,5 @@ playwright-report/
 # CDDA checkout (or point $CDDA_DIR at one)
 vendor/
 
-# Downloaded open-licensed models and textures (npm run assets)
-public/assets/models/
-public/assets/textures/
 
-# Local edits saved by the studio
-public/data/appearance.local.json
 build/

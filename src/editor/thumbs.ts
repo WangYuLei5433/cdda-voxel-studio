@@ -1,5 +1,5 @@
-// Thumbnails for the editor's grid view: each object built exactly as the stage shows it
-// (src/editor/subject.ts, the game's own drawing code), rendered once off-screen from the
+// Thumbnails for the grid view: each object built exactly as the stage shows it
+// (src/editor/subject.ts), rendered once off-screen from the
 // stage's three-quarter view and cached as an image. Only cells that scroll into view are
 // rendered, one at a time, so a branch with thousands of objects never blocks the page.
 import * as THREE from 'three';
@@ -87,10 +87,7 @@ export class ThumbnailCache {
       this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     }
     const root = new THREE.Group();
-    root.scale.set(...subject.rootScale);
     root.add(subject.object);
-    // Skinned characters take their pose on the first animation update.
-    subject.actor?.update(0.016);
     this.scene.add(root);
     root.updateMatrixWorld(true);
     const box = new THREE.Box3();

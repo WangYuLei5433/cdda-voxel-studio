@@ -14,7 +14,7 @@ describe('interface translations', () => {
       for (const m of s.matchAll(/\bt\('([^']*)'/g)) if (/[一-龥]/.test(m[1])) keys.add(m[1]);
       for (const m of s.matchAll(/data-i18n(?:-title|-placeholder)?="([^"]*)"/g)) keys.add(m[1]);
     }
-    expect(keys.size).toBeGreaterThan(200);
+    expect(keys.size).toBeGreaterThan(150);
     const missing = [...keys].filter((k) => !DICT[k]?.[0] || !DICT[k]?.[1]);
     expect(missing).toEqual([]);
     // Placeholders survive translation.

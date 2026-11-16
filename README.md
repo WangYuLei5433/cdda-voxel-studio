@@ -1,96 +1,131 @@
 # CDDA Voxel Studio
 
-A browser tool for building a shared 3D model library for
-[Cataclysm: Dark Days Ahead](https://github.com/CleverRaven/Cataclysm-DDA).
+A browser tool for building a shared voxel model library for
+[Cataclysm: Dark Days Ahead](https://github.com/CleverRaven/Cataclysm-DDA) (CDDA).
 
-It lists every CDDA object (terrain, furniture, items, monsters, vehicles, vehicle parts, fields,
-traps) from the game's JSON data. For each object it previews the model the object resolves to,
-at its size next to a reference wall and person. You can change which model an object uses and
-how it is placed.
+It lists every object in the game: terrain, furniture, items, monsters, vehicles, vehicle parts,
+fields and traps. For each object it shows the voxel model a **voxel set** gives it, placed on
+its tile next to a reference wall and person. Objects that have no model yet show a box sized
+from their CDDA data. Modelling itself happens in [MagicaVoxel](https://ephtracy.github.io/) (or
+any editor that saves `.vox`); this studio previews and checks the models against the game.
 
-> Status: early. This is the model editor taken out of Cataclysm-Vox. Next it will read and
-> write voxel sets: `voxelset.json` plus MagicaVoxel `.vox` files, the format used by
-> [cataclysm-3d](https://github.com/Risaro/cataclysm-3d). It will also take higher-detail GLB
-> models for the same objects. Modelling itself happens in MagicaVoxel or Blender. This tool
-> previews, checks, binds models to CDDA ids and packages them.
+The model format is the one used by [cataclysm-3d](https://github.com/Risaro/cataclysm-3d), a 3D
+voxel renderer for CDDA, so a set that looks right here works there as it is.
 
-## Run it
+The interface is available in English, Chinese and Russian.
+
+## Quick start
 
 ```sh
 npm install
-npm run assets          # download the open-licensed models and textures (KayKit, Quaternius, Poly Haven)
-npm run dev
+node tools/fetch-voxel-starter.mjs   # optional: cataclysm-3d's starter set into vendor/voxel/starter
+npm run dev                          # http://127.0.0.1:5180
 ```
 
-Local edits are saved to `public/data/appearance.local.json`, which is not committed.
+- The CDDA object list ships with the repository, so no CDDA install is needed to browse it.
+- `?kind=vox` opens the voxel model library.
+- `?lang=en|zh_CN|ru` picks the interface language. The default follows the browser.
 
 ## Voxel sets
 
-A voxel set is a folder holding `voxelset.json` and `.vox` files: the format of
-[cataclysm-3d](https://github.com/Risaro/cataclysm-3d) (see its `doc/VOXEL_TILESETS.md`).
+A voxel set is a folder holding a `voxelset.json` and `.vox` files. The format is described in
+cataclysm-3d's [`doc/VOXEL_TILESETS.md`](https://github.com/Risaro/cataclysm-3d/blob/voxel-3d/doc/VOXEL_TILESETS.md):
 
-- Sets are asset files, not part of this repository. The dev server shows every set found under
-  `vendor/voxel/<set>/` as the **Voxel models** kind.
-- `node tools/fetch-voxel-starter.mjs` downloads cataclysm-3d's starter set there.
-- Previews follow cataclysm-3d's conventions:
-  - 8 voxels per tile; a z-level is 16 voxels high and a person is about 13.
-  - The model stands on the ground and is centered on its tile.
-  - MagicaVoxel +y faces north.
-  - Glass colors are translucent.
-- With a set loaded, the reference wall is 2 tiles high and the reference person 1.625. Add
-  `?world=compact` to the URL for the old proportions.
+```json
+{
+  "name": "My voxel set",
+  "voxels_per_tile": 8,
+  "models": [
+    { "id": "mon_zombie", "file": "monsters/zombie.vox" },
+    { "builtin": "tree", "files": ["nature/oak_a.vox", "nature/oak_b.vox"] }
+  ]
+}
+```
 
-How CDDA objects map to built-in model types is still open. See
-`docs/builtin-classification.md`.
+Sets are asset files, not part of this repository. The dev server picks up every folder under
+`vendor/voxel/` that holds a `voxelset.json`.
 
-## Languages
+To find an object's model, the studio uses cataclysm-3d's lookup order:
 
-The interface is available in Chinese, English and Russian. The picker is in the top right. The
-default follows the browser's language, and `?lang=zh_CN|en|ru` in the URL picks one directly.
-Interface strings are in `src/editor/i18n.ts`.
+1. the object's own id;
+2. its `looks_like` chain;
+3. its built-in model type (`zombie`, `quadruped`, `tree`, `wall` + material …);
+4. otherwise, the stand-in box.
+
+Previews follow cataclysm-3d's conventions:
+
+- 8 voxels per tile. A z-level is 16 voxels high and a person about 13.
+- The bottom voxel layer stands on the ground, and the footprint is centered on the tile.
+- MagicaVoxel +y faces north.
+- Colors with alpha below 250, or with a `_glass` / `_blend` material, are translucent.
+- Only the first model in a file is used.
+
+The inspector flags models that break these rules. It reports models larger than 256 voxels,
+models whose bottom layer is empty, and footprints that cannot be centered.
+
+### Built-in model types
+
+The type of each CDDA object is read from
+`public/data/cdda/<version>/builtin-kinds.json`, generated by `tools/classify/builtin-kinds.mjs`.
+Monsters are covered so far, using rules ported from cataclysm-3d. Other kinds are still open;
+see [docs/builtin-classification.md](docs/builtin-classification.md) (in Chinese).
 
 ## CDDA object catalog
 
-The object list is a generated file, stored per CDDA version under `public/data/cdda/<version>/`:
+The catalog is generated from CDDA's JSON data and stored per CDDA version under
+`public/data/cdda/<version>/`:
 
-- `catalog.json`: every object, with its English name and its gettext context.
-- `names.zh_CN.json`, `names.ru.json`: object names from CDDA's official translations.
-  - **Chinese:** names missing from the official translation are filled in by this project from
-    `tools/editor/names/zh_CN.json`. They are flagged as unofficial (`*` in the inspector), and an
-    official name replaces them once one exists.
-  - **Russian:** missing names fall back to English.
+| File | Content |
+| --- | --- |
+| `catalog.json` | Every object: id, English name and gettext context, symbol, color, flags, `looks_like`, source file. `copy-from` is resolved, including `relative`, `proportional`, `extend` and `delete`. Items also carry volume, weight, longest side, types and variants. Monsters also carry volume, weight, body type and species. |
+| `names.<lang>.json` | Object names from CDDA's official translations. |
+| `builtin-kinds.json` | The built-in voxel model type of each object (see above). |
 
-`public/data/cdda/index.json` lists the versions, newest first. `?cdda=<version>` picks one.
+**Coverage.** The catalog covers the core content (`data/json`, the `dda` mod). The other mods
+enabled by default add no visible objects. Every terrain, furniture, item, monster, vehicle,
+vehicle part, field and trap id there is listed.
 
-- **Coverage:** the core content (`data/json`, the `dda` mod). The only other mods enabled by
-  default, `no_npc_food` and `personal_portal_storms`, add no visible objects. The catalog covers
-  every terrain, furniture, item, monster, vehicle, vehicle part, field and trap id there.
-- **Fields:** for every object, the source file and the resolved `copy-from` (`relative`,
-  `proportional`, `extend`, `delete`).
-  - Items: volume, weight, longest side, types and variants.
-  - Monsters: volume, weight and body type.
-- **License:** derived from CDDA data and translations, so CC BY-SA 3.0.
+**Names.**
+- Chinese names missing from the official translation are filled in from
+  `tools/editor/names/zh_CN.json`. They are marked as unofficial (`*`).
+- Russian names fall back to English.
 
-To generate the catalog for a CDDA version:
+To generate the catalog for another CDDA version:
 
 ```sh
-node tools/fetch-translations.mjs cdda-experimental-2026-11-14-0749   # official zh_CN + ru .po
-CDDA_DIR=/path/to/Cataclysm-DDA npm run catalog -- --write --version experimental-2026-11-14 \
-  --translations cdda-experimental-2026-11-14-0749 --commit <sha>
-npm run catalog -- --missing zh_CN --translations <tag>   # names the official translation lacks
+node tools/fetch-translations.mjs cdda-experimental-YYYY-MM-DD-HHMM     # official .po files
+CDDA_DIR=/path/to/Cataclysm-DDA node tools/editor/catalog.mjs --write \
+  --version experimental-YYYY-MM-DD --translations cdda-experimental-YYYY-MM-DD-HHMM --commit <sha>
+node tools/classify/builtin-kinds.mjs
 ```
 
-`CDDA_DIR` is a CDDA checkout or install with `data/json`. The default is `vendor/cdda`.
+`CDDA_DIR` is a CDDA checkout or install that contains `data/json`. The default is `vendor/cdda`.
 
-## Develop
+## Development
 
 ```sh
-npm test                # lint, typecheck, unit tests, build
-npm run test:browser    # Playwright (needs the assets and CDDA data)
+npm test               # lint, typecheck, unit tests, build
+npm run test:browser   # Playwright; voxel tests need vendor/voxel/starter
 ```
+
+| Path | Content |
+| --- | --- |
+| `src/vox/` | `.vox` reader and writer, greedy mesher, `voxelset.json` reader and writer, lookup |
+| `src/editor/` | the studio interface |
+| `tools/editor/` | catalog generator and dev-server endpoints |
+| `tools/classify/` | built-in model type table |
 
 ## Licenses
 
-- Code: MIT (see `LICENSE`).
-- Downloaded assets keep their own licenses. Each pack's `LICENSE.txt` is saved next to it.
-- `public/data/cdda/`: derived from CDDA data, CC BY-SA 3.0.
+- **Code:** MIT. See [LICENSE](LICENSE).
+- **CDDA-derived data:** CC BY-SA 3.0, like CDDA itself. See
+  [public/data/cdda/LICENSE.txt](public/data/cdda/LICENSE.txt). This covers `public/data/cdda/`
+  and the name list in `tools/editor/names/`.
+- **Ported cataclysm-3d rules:** `tools/classify/builtin-kinds.mjs` ports rules from
+  cataclysm-3d, which is a CDDA fork, so that file and the table it writes are CC BY-SA 3.0. The
+  studio's code only reads the table.
+- **Voxel sets:** not included. Each set keeps its own license.
+
+Cataclysm: Dark Days Ahead is made by its contributors at
+[CleverRaven/Cataclysm-DDA](https://github.com/CleverRaven/Cataclysm-DDA). cataclysm-3d is by
+[Risaro](https://github.com/Risaro/cataclysm-3d).

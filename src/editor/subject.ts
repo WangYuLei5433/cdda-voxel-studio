@@ -1,230 +1,27 @@
-// Build one catalog object the way the game draws it (src/render/map-layer.ts for terrain,
-// furniture, items and vehicles; src/render/creature-plan.ts for monsters), for the stage.
+// What the stage shows for one object: its voxel model when a voxel set has one, else an
+// abstract box sized from the object's CDDA data (1 tile = 1 m, cataclysm-3d's scale).
 import * as THREE from 'three';
 
-import type { Appearance, Explanation } from '../render/appearance';
-import { colorOf, furnitureKind, terrainKind } from '../render/classify';
-import { buildMonster, planMonster, type MonsterPlan } from '../render/creature-plan';
-import type { ModelInstance, ModelLibrary } from '../render/models';
-import { fieldColor } from '../render/field-color';
-import { copyMaterial, type TextureLibrary } from '../render/textures';
-import { wallPartGeometry } from '../render/wall-geometry';
+import { colorOf, terrainKind } from '../render/classify';
 import { WORLD } from '../render/world-scale';
-import type { CatalogFeature } from '../shared/protocol';
-import { isEditable, monsterInfo, type CatalogEntry, type CatalogKind } from './catalog';
-import type { EditKind } from './overrides';
-import { t } from './i18n';
 import { buildVox, entryLabel, type VoxItem } from '../vox/library';
 import type { VoxMatch } from '../vox/match';
+import type { CatalogEntry, CatalogKind } from './catalog';
+import { t } from './i18n';
 
 export interface Subject {
   object: THREE.Object3D;
-  actor: ModelInstance | null;
-  rootScale: [number, number, number];
-  /** The model key placed (after variant / season / tile choice), if any. */
-  model: string | null;
-  /** The placement scale the game passes for it (on top of the model's own size). */
-  placeScale: number;
-  /** Every variant key the resolved rule offers. */
-  variants: string[];
   /** How it is drawn, in words. */
   source: string;
-  /** Things the game varies or that the stage cannot show exactly. */
+  /** Sizes, bindings and problems. */
   notes: string[];
-  plan?: MonsterPlan;
+  /** File variants the voxel entry offers (the variant buttons step through them). */
+  variants: string[];
 }
 
-export interface Context {
-  appearance: Appearance;
-  models: ModelLibrary;
-  textures: TextureLibrary;
-}
+const fmt = (n: number, digits = 2) => (Number.isFinite(n) ? n.toFixed(digits) : '—');
 
-const feature = (e: CatalogEntry): CatalogFeature => ({ id: e.id, name: e.name, sym: e.sym, color: e.color, move: e.move ?? 2, looksLike: e.looksLike ?? '', flags: e.flags });
-
-/** A static model as the instanced-prop layer draws it: parts × placement (scale, turn). */
-async function staticModel(ctx: Context, key: string, scale: number, tint: number | null): Promise<THREE.Object3D | null> {
-  await ctx.models.ensure(key);
-  const parts = ctx.models.staticParts(key);
-  if (!parts) return null;
-  const detail = ctx.appearance.model(key)?.detail;
-  const group = new THREE.Group();
-  for (const part of parts) {
-    let material = detail ? ctx.textures.detail(part.material, detail) : part.material;
-    if (tint !== null) {
-      material = copyMaterial(material);
-      (material as THREE.MeshStandardMaterial).color?.multiply(new THREE.Color(tint));
-    }
-    const mesh = new THREE.Mesh(part.geometry, material);
-    mesh.applyMatrix4(part.matrix);
-    group.add(mesh);
-  }
-  group.scale.setScalar(scale);
-  return group;
-}
-
-/** A terrain surface: a floor tile, or a three-tile wall run for walls. */
-function surface(ctx: Context, texture: string | null, wall: boolean, color: number): THREE.Object3D {
-  const textured = texture && ctx.textures.surface(texture);
-  const material = textured || new THREE.MeshStandardMaterial({ color, roughness: 1 });
-  const wallMaterial = material;
-  const group = new THREE.Group();
-  if (wall) {
-    for (let i = -1; i <= 1; i++) {
-      for (const part of ['post', 'armPos', 'armNeg'] as const) {
-        const m = new THREE.Mesh(wallPartGeometry(part, WORLD.wallHeight), wallMaterial);
-        m.position.x = i;
-        group.add(m);
-      }
-    }
-  } else {
-    group.add(new THREE.Mesh(new THREE.BoxGeometry(1, 0.02, 1).translate(0, 0.011, 0), material));
-  }
-  return group;
-}
-
-const std = (opts: THREE.MeshStandardMaterialParameters) => new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0, ...opts });
-const box = (w: number, h: number, d: number, y: number, material: THREE.Material) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d).translate(0, y, 0), material);
-
-/** A vehicle part as the map layer draws vehicles without a whole-vehicle model. */
-function vehiclePart(entry: CatalogEntry): { object: THREE.Object3D; source: string } {
-  const has = (...f: string[]) => f.some((x) => entry.flags.includes(x));
-  const metal = (color: number) => std({ color, metalness: 0.3, roughness: 0.6 });
-  const floor = (color = 0x5a5f69) => box(0.98, 0.25, 0.98, 0.35, metal(color));
-  const g = new THREE.Group();
-  let source: string;
-  if (has('WHEEL')) {
-    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.22, 12).rotateZ(Math.PI / 2).translate(0, 0.32, 0), std({ color: 0x1e1e1e }));
-    g.add(floor(), wheel);
-    source = t('车轮：底板 + 轮子');
-  } else if (has('WINDSHIELD', 'WINDOW')) {
-    const body = box(0.98, 0.7, 0.98, 0.45, metal(0x6a7280));
-    body.scale.setScalar(0.7);
-    g.add(body, box(0.9, 0.35, 0.9, 0.95, std({ color: 0xbfe6ff, transparent: true, opacity: 0.35, roughness: 0.1 })));
-    source = t('车窗：车身块 + 玻璃');
-  } else if (has('SEAT', 'BED')) {
-    g.add(floor(), box(0.6, 0.45, 0.55, 0.7, std({ color: 0x6a3a2a })));
-    source = t('座椅 / 床：底板 + 座垫');
-  } else if (has('OPENABLE', 'DOOR')) {
-    g.add(box(0.98, 0.7, 0.98, 0.45, metal(0x7a8a9a)));
-    source = t('车门：车身块');
-  } else if (has('CARGO', 'ENGINE', 'TURRET', 'FUEL_TANK')) {
-    g.add(box(0.98, 0.7, 0.98, 0.45, metal(0x8a8f99)));
-    source = t('货舱 / 引擎 / 炮塔 / 油箱：车身块');
-  } else {
-    g.add(floor(0x8a8f99));
-    source = t('其他部件：底板');
-  }
-  return { object: g, source: t('程序方块（{what}）', { what: source }) };
-}
-
-/** Build a vehicle part, field or trap: things the map layer draws without a model. */
-function buildDrawnOnly(ctx: Context, kind: Exclude<CatalogKind, EditKind>, entry: CatalogEntry, variant: number): Subject {
-  const base = { actor: null, rootScale: [1, 1, 1] as [number, number, number], model: null, placeScale: 1 };
-  if (kind === 'vpart') {
-    const { object, source } = vehiclePart(entry);
-    return { ...base, object, variants: [], source, notes: [t('游戏不给单个载具部件找模型：整车有模型且不少于 6 格时画整车模型，否则每格按部件标志画方块（车轮、车窗、座椅、车门、货舱…）'), t('安装位置：{where}', { where: entry.location || '—' })] };
-  }
-  if (kind === 'field') {
-    // map-layer.ts: a thin tile-sized slab, sized by intensity, textured or coloured.
-    const intensity = (variant % 3) + 1;
-    const texture = ctx.appearance.textureFor('field', entry);
-    const material = (texture && ctx.textures.surface(texture, { transparent: true, opacity: 0.45, side: THREE.DoubleSide })) || std({ color: fieldColor(entry.id), transparent: true, opacity: 0.45, depthWrite: false });
-    const slab = box(0.96, 0.04, 0.96, 0, material);
-    slab.position.y = 0.03;
-    slab.scale.setScalar(0.5 + Math.min(3, intensity) * 0.17);
-    const g = new THREE.Group();
-    g.add(slab);
-    return { ...base, object: g, variants: ['1', '2', '3'], source: texture ? t('贴图 {key}', { key: texture }) : t('半透明色块'), notes: [t('强度 {n}（变体按钮切换 1–3）：游戏按强度把色块放大到 0.67–1.01 格', { n: intensity }), t('形态：{phase}', { phase: entry.phase || '—' })] };
-  }
-  return { ...base, object: new THREE.Group(), variants: [], source: t('不绘制'), notes: [entry.hidden ? t('隐藏机关：只由脚本触发，CDDA 中也不可见') : t('游戏的 3D 画面目前不画陷阱（快照里有陷阱数据，只用于自动寻路避让）')] };
-}
-
-/** Variant keys a resolution offers ("a|b|c" → three keys). */
-const variantsOf = (why: Explanation) => why.resolved?.model.split('|') ?? [];
-
-/**
- * Build `entry` of `kind` for the stage. `variant` picks among the rule's model variants
- * (the game picks by tile position).
- */
-export async function buildSubject(ctx: Context, kind: CatalogKind, entry: CatalogEntry, variant = 0): Promise<Subject> {
-  if (!isEditable(kind)) return buildDrawnOnly(ctx, kind, entry, variant);
-  const { appearance } = ctx;
-  const why = appearance.explain(kind, entry);
-  const variants = variantsOf(why);
-  const notes: string[] = [];
-  if (variants.length > 1) notes.push(t('规则有 {n} 个变体，游戏按格子位置挑选', { n: variants.length }));
-
-  if (kind === 'monster') {
-    const plan = planMonster(monsterInfo(entry), variant, appearance);
-    const actor = await buildMonster(plan, ctx.models);
-    actor?.play('idle');
-    let object = actor?.object ?? null;
-    if (!object) {
-      // The game's placeholder (src/render/creatures.ts CreatureView).
-      const mat = new THREE.MeshStandardMaterial({ color: colorOf(entry.color), roughness: 0.7 });
-      object = new THREE.Group();
-      const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.45, 4, 10), mat);
-      torso.position.y = 0.45;
-      const skull = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 10), mat);
-      skull.position.y = 0.95;
-      object.add(torso, skull);
-    }
-    return { object, actor, rootScale: plan.scale, model: plan.kind === 'model' ? plan.key : null, placeScale: plan.kind === 'model' ? plan.extra : 1, variants, source: plan.source, notes, plan };
-  }
-
-  if (kind === 'vehicle') {
-    const r = appearance.resolve('vehicle', entry, variant);
-    const length = entry.length ?? 1;
-    notes.push(t('游戏按车身长度缩放：{n} 格 × 0.95；少于 6 格的车按部件绘制', { n: length }));
-    if (!r) return { object: new THREE.Group(), actor: null, rootScale: [1, 1, 1], model: null, placeScale: 1, variants, source: t('无整车模型（按部件绘制）'), notes };
-    const scale = length * 0.95 * r.scale;
-    const object = (await staticModel(ctx, r.model, scale, null)) ?? new THREE.Group();
-    return { object, actor: null, rootScale: [1, 1, 1], model: r.model, placeScale: scale, variants, source: t('模型 {key}', { key: r.model }), notes };
-  }
-
-  if (kind === 'ter') {
-    const tk = terrainKind(feature(entry));
-    const r = tk === 'door' || tk === 'door_open' || tk === 'window' ? null : appearance.resolve('ter', entry, variant, undefined, 0);
-    const texture = appearance.textureFor('ter', entry, variant);
-    if (r) {
-      notes.push(t('游戏中每格随机缩放 80%–100%（此处为 100%）'));
-      if (/tree|bush|rock/.test(r.model)) notes.push(t('树木、灌木、岩石在游戏中随机转向'));
-      const tint = r.tint ? colorOf(entry.color) : null;
-      const object = (await staticModel(ctx, r.model, r.scale, tint)) ?? new THREE.Group();
-      return { object, actor: null, rootScale: [1, 1, 1], model: r.model, placeScale: r.scale, variants, source: t('模型 {key}', { key: r.model }), notes };
-    }
-    if (tk === 'door' || tk === 'door_open' || tk === 'window') notes.push(t('门和窗由程序生成（门板、门框、窗台），不使用模型'));
-    const wall = tk === 'wall' || tk === 'door' || tk === 'window';
-    return { object: surface(ctx, texture, wall, appearance.colorFor(entry.id) ?? colorOf(entry.color)), actor: null, rootScale: [1, 1, 1], model: null, placeScale: 1, variants, source: texture ? t('贴图 {key}', { key: texture }) : t('纯色'), notes };
-  }
-
-  // Furniture and items (map-layer placeResolved).
-  const r = kind === 'furn' ? appearance.resolve('furn', entry, variant, undefined, 0, { x: 0, z: 0, width: 1, depth: 1 }) : appearance.resolve('item', entry, variant);
-  if (kind === 'item') notes.push(t('地上物品在游戏中随机转向，并偏离格子中心 0.18 格'));
-  if (r) {
-    // Furniture tints with the registry colour, ground items with their CDDA colour.
-    const tint = r.tint ? (kind === 'furn' ? appearance.colorFor(entry.id) ?? colorOf(entry.color) : colorOf(entry.color)) : null;
-    const object = (await staticModel(ctx, r.model, r.scale, tint)) ?? new THREE.Group();
-    return { object, actor: null, rootScale: [1, 1, 1], model: r.model, placeScale: r.scale, variants, source: t('模型 {key}', { key: r.model }), notes };
-  }
-  // No model: the map layer's block geometry.
-  const fk = kind === 'furn' ? furnitureKind(feature(entry)) : 'none';
-  const color = appearance.colorFor(entry.id) ?? colorOf(entry.color);
-  const object = new THREE.Group();
-  if (kind === 'furn' && fk !== 'none') {
-    // furnLow / furnBlock batches in map-layer.ts.
-    const [w, h] = fk === 'low' ? [0.8, 0.45] : [0.86, 0.95];
-    object.add(new THREE.Mesh(new THREE.BoxGeometry(w, h, w).translate(0, h / 2, 0), new THREE.MeshStandardMaterial({ color, roughness: 0.9 })));
-    notes.push(t('无模型：游戏中画为程序方块'));
-  } else if (kind === 'item') {
-    object.add(new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.16, 0.22).translate(0, 0.08, 0), new THREE.MeshStandardMaterial({ color, roughness: 0.9 })));
-    notes.push(t('无模型：游戏中画为小方块'));
-  }
-  return { object, actor: null, rootScale: [1, 1, 1], model: null, placeScale: 1, variants, source: t('无模型'), notes };
-}
-
-/** A voxel model as its first voxel-set entry places it, with its size and checks. */
+/** A voxel model as `match` (or the item's first entry) places it, with its size and checks. */
 export async function buildVoxSubject(item: VoxItem, match?: VoxMatch, tint?: number): Promise<Subject> {
   const { object, model, problems } = await buildVox(item, match?.entry, tint);
   const [x, y, z] = model.size;
@@ -237,7 +34,9 @@ export async function buildVoxSubject(item: VoxItem, match?: VoxMatch, tint?: nu
     ...(model.modelCount > 1 ? [t('文件里有 {n} 个模型，cataclysm-3d 只用第一个', { n: model.modelCount })] : []),
     ...problems.map((p) => VOX_PROBLEM[p] ?? p),
   ];
-  return { object, actor: null, rootScale: [1, 1, 1], model: null, placeScale: 1, variants: [], source: `${item.set.id}/${item.file}`, notes };
+  const entry = match?.entry ?? item.entries[0];
+  const files = entry?.files?.length ? entry.files : [];
+  return { object, source: `${item.set.id}/${item.file}`, notes, variants: files };
 }
 
 const VOX_PROBLEM: Record<string, string> = {
@@ -247,14 +46,55 @@ const VOX_PROBLEM: Record<string, string> = {
   empty: t('模型是空的'),
 };
 
-/** A model-library entry on its own, at the size its entry gives it (placement scale 1). */
-export async function buildModelSubject(ctx: Context, key: string): Promise<Subject> {
-  const entry = ctx.appearance.model(key);
-  const object = (await staticModel(ctx, key, 1, null)) ?? new THREE.Group();
-  const notes: string[] = [];
-  if (entry?.fit) notes.push(t('按水平最长边缩放到 {n} 格（fit）', { n: entry.fit }));
-  else if (entry?.scale !== undefined) notes.push(t('固定缩放 {n}', { n: entry.scale }));
-  if (entry?.lieFlat) notes.push(t('平放（lieFlat）'));
-  if (entry?.lazy) notes.push(t('按需加载（lazy）'));
-  return { object, actor: null, rootScale: [1, 1, 1], model: key, placeScale: 1, variants: [key], source: entry?.url ?? t('未知模型'), notes };
+/** Size of the stand-in box, in tiles (x across, y up, z along), and how it was worked out. */
+export function placeholderSize(kind: CatalogKind, e: CatalogEntry): { size: [number, number, number]; basis: string } {
+  switch (kind) {
+    case 'item': {
+      // Longest side lying along x; the rest of the volume as a square cross-section.
+      const length = (e.longestSide ?? 100) / 1000;
+      const volume = (e.volume ?? 250) / 1e6;
+      const side = Math.min(length, Math.max(0.005, Math.sqrt(volume / Math.max(length, 0.001))));
+      return { size: [length, side, side], basis: t('按最长边 {l} cm、体积 {v} L 估算', { l: fmt(length * 100, 1), v: fmt(volume * 1000, 2) }) };
+    }
+    case 'monster': {
+      // A body of the creature's volume: upright for humanoids, long for the rest.
+      const volume = (e.volume ?? [0, 3750, 30000, 62500, 300000, 1000000][e.size ?? 3]) / 1e6;
+      const s = Math.cbrt(volume);
+      const upright = e.body === 'human' || ((e.species ?? []).some((x) => ['HUMAN', 'ZOMBIE', 'FERAL', 'CYBORG'].includes(x)) && !e.body);
+      return { size: upright ? [1.1 * s, 4.4 * s, 0.6 * s] : [0.8 * s, s, 1.6 * s], basis: t('按体积 {v} L 估算（{shape}）', { v: fmt(volume * 1000, 1), shape: upright ? t('直立') : t('横卧') }) };
+    }
+    case 'ter': {
+      const k = terrainKind({ id: e.id, name: e.name, sym: e.sym, color: e.color, move: e.move ?? 2, looksLike: e.looksLike ?? '', flags: e.flags });
+      const full = k === 'wall' || k === 'door' || k === 'window';
+      return full ? { size: [1, WORLD.wallHeight, 1], basis: t('墙、门、窗：一格宽、一层高') } : { size: [1, 0.05, 1], basis: t('地面：一格大小的薄板') };
+    }
+    case 'furn':
+      return { size: [0.9, 0.9, 0.9], basis: t('家具：CDDA 没有尺寸数据，按一格显示') };
+    case 'vehicle':
+      return { size: [e.width ?? 1, 1.5, e.length ?? 1], basis: t('按车身 {l} × {w} 格', { l: e.length ?? 1, w: e.width ?? 1 }) };
+    case 'vpart':
+      return { size: [1, 0.5, 1], basis: t('载具部件：一格') };
+    case 'field':
+      return { size: [1, 0.1, 1], basis: t('场地效果：铺满一格') };
+    case 'trap':
+      return { size: [0.8, 0.05, 0.8], basis: t('陷阱：地面上的一块') };
+  }
+}
+
+/** The stand-in: a translucent box in the object's CDDA color, with its edges drawn. */
+export function buildPlaceholder(kind: CatalogKind, e: CatalogEntry): Subject {
+  const { size, basis } = placeholderSize(kind, e);
+  const [w, h, d] = size;
+  const geometry = new THREE.BoxGeometry(w, h, d).translate(0, h / 2, 0);
+  const color = colorOf(e.color);
+  const box = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color, transparent: true, opacity: 0.55, roughness: 0.9, depthWrite: false }));
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), new THREE.LineBasicMaterial({ color }));
+  const group = new THREE.Group();
+  group.add(box, edges);
+  return {
+    object: group,
+    source: t('没有体素模型：占位长方体'),
+    notes: [basis, t('{w} × {d} × {h} 格（宽 × 深 × 高）', { w: fmt(w), d: fmt(d), h: fmt(h) })],
+    variants: [],
+  };
 }

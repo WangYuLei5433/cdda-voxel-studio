@@ -1,32 +1,26 @@
-// CDDA model studio (index.html): find any CDDA object or model, preview it — model,
-// texture, variants, animations and size next to a wall and a person — and change which
-// model it uses and how it is placed. Edits are saved to the local overrides file
-// (src/render/appearance.ts LOCAL_OVERRIDES).
+// CDDA Model Studio (index.html): browse every CDDA object, see the voxel model a voxel set
+// gives it (cataclysm-3d's format: voxelset.json + MagicaVoxel .vox files), or a stand-in box
+// sized from its CDDA data, next to a wall and a person at cataclysm-3d's scale.
 import './editor.css';
 
-import { Appearance, LOCAL_OVERRIDES, LOCAL_PACKS, type AppearanceDoc } from '../render/appearance';
-import { ModelLibrary, type ClipRole } from '../render/models';
-import { TextureLibrary } from '../render/textures';
-import { useMetricWorld, useVoxelWorld, WORLD } from '../render/world-scale';
+import { colorOf } from '../render/classify';
+import { WORLD } from '../render/world-scale';
 import { builtinGroup, entryLabel, libraryItems, loadVoxelSets } from '../vox/library';
 import { VoxMatcher, type BuiltinKinds } from '../vox/match';
-import { colorOf } from '../render/classify';
-import { applyNames, EMPTY_CATALOG, type CatalogIndex, type CatalogNames, isEditable, STATUS_LABEL, search, statusOf, type CatalogEntry, type CatalogKind, type EditorCatalog, type Status } from './catalog';
-import { esc, measureHtml, readForm, renderInspector } from './inspector';
-import { editedObjects, emptyDoc, readEdit, removeEdit, writeEdit, type Edit, type EditKind, type OverrideDoc } from './overrides';
+import { applyNames, EMPTY_CATALOG, search, STATUS_LABEL, type CatalogEntry, type CatalogIndex, type CatalogKind, type CatalogNames, type EditorCatalog, type Status } from './catalog';
+import { lang, LANGS, setLang, t, type Lang } from './i18n';
+import { esc, measureHtml, renderInspector } from './inspector';
 import { Stage, type Measure, type View } from './stage';
-import { buildModelSubject, buildSubject, buildVoxSubject, type Subject } from './subject';
+import { buildPlaceholder, buildVoxSubject, type Subject } from './subject';
 import { ThumbnailCache } from './thumbs';
 import { branchOf, buildTree, inBranch, KIND_NAME, KINDS, pathOf, trail, type Kind, type TreeNode } from './tree';
-import { lang, LANGS, setLang, t, type Lang } from './i18n';
 
 type Tab = Kind;
-const FILTERS: (Status | 'all')[] = ['all', 'voxel', 'fallback', 'base', 'texture', 'procedural', 'none', 'hidden', 'override'];
+const FILTERS: (Status | 'all')[] = ['all', 'voxel', 'none', 'library'];
 const LIST_LIMIT = 400;
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
-// ── Registry: base documents + the override document ────────────────────────────────────
 async function fetchJson<T>(url: string): Promise<T | null> {
   try {
     const res = await fetch(url, { cache: 'no-store' });
@@ -36,43 +30,22 @@ async function fetchJson<T>(url: string): Promise<T | null> {
   }
 }
 
-const baseDocs = (await Promise.all(['/data/appearance.json', ...LOCAL_PACKS.filter((u) => u !== LOCAL_OVERRIDES)].map((u) => fetchJson<AppearanceDoc>(u)))).filter((d): d is AppearanceDoc => Boolean(d));
-const apiAvailable = Boolean(await fetchJson('/api/editor/overrides'));
-let saved: OverrideDoc = { ...emptyDoc(), ...((apiAvailable ? await fetchJson<OverrideDoc>('/api/editor/overrides') : await fetchJson<OverrideDoc>(LOCAL_OVERRIDES)) ?? {}) };
-let draft: OverrideDoc = saved;
-
-function makeAppearance(doc: OverrideDoc): Appearance {
-  const a = new Appearance();
-  for (const d of baseDocs) a.merge(d);
-  a.merge(doc as AppearanceDoc);
-  return a;
-}
-
-let appearance = makeAppearance(saved);
-// Voxel sets (dev server: vendor/voxel/*). With any, sizes follow cataclysm-3d's voxel world
-// unless ?world= says otherwise (metric / compact).
-const voxelSets = await loadVoxelSets();
-const worldParam = new URLSearchParams(location.search).get('world');
-if (worldParam === 'voxel' || (!worldParam && voxelSets.length)) useVoxelWorld(voxelSets[0]?.set.voxels_per_tile ?? 8);
-else useMetricWorld(worldParam === 'metric');
-const voxItems = new Map(libraryItems(voxelSets).map((i) => [i.key, i]));
-const textures = new TextureLibrary(appearance.textures);
-const models = new ModelLibrary(appearance);
-// The CDDA object catalog: pre-built per CDDA version (tools/editor/catalog.mjs --write).
+// ── Data: CDDA catalog (per version, names per language) and voxel sets ─────────────────
+const params = new URLSearchParams(location.search);
 const catalogIndex = await fetchJson<CatalogIndex>('/data/cdda/index.json');
-const catalogVersion = catalogIndex?.versions.find((v) => v.id === new URLSearchParams(location.search).get('cdda')) ?? catalogIndex?.versions[0];
+const catalogVersion = catalogIndex?.versions.find((v) => v.id === params.get('cdda')) ?? catalogIndex?.versions[0];
 const catalog: EditorCatalog = { ...EMPTY_CATALOG, ...((catalogVersion && (await fetchJson<EditorCatalog>(`/data/cdda/${catalogVersion.path}`))) ?? {}) };
-// Object names in the interface language (English needs no file).
 const namesPath = lang === 'en' ? undefined : catalogVersion?.langs?.[lang]?.path;
 applyNames(catalog, namesPath ? await fetchJson<CatalogNames>(`/data/cdda/${namesPath}`) : null);
-// Voxel models for CDDA objects: id → looks_like → built-in type (the table of built-in types
-// is generated per CDDA version by tools/classify/builtin-kinds.mjs).
+
+const voxelSets = await loadVoxelSets();
+const voxItems = new Map(libraryItems(voxelSets).map((i) => [i.key, i]));
+// Built-in model type per object (tools/classify/builtin-kinds.mjs), for sets that bind by type.
 const builtinKinds = catalogVersion && voxelSets.length ? await fetchJson<BuiltinKinds>(`/data/cdda/${catalogVersion.id}/builtin-kinds.json`) : null;
 const matcher = new VoxMatcher(voxelSets, catalog, builtinKinds, voxItems);
-/** The voxel model a CDDA object gets from the loaded sets (null for other tabs or none). */
-const voxMatch = (kind: Tab, id: string, v = 0) => (kind === 'model' || kind === 'vox' || !matcher.active ? null : matcher.find(kind, id, v));
+const voxMatch = (kind: Tab, id: string, v = 0) => (kind === 'vox' || !matcher.active ? null : matcher.find(kind, id, v));
 
-// Static texts, the language picker and the page language.
+// ── Static texts, language picker, header ───────────────────────────────────────────────
 document.documentElement.lang = lang === 'zh_CN' ? 'zh' : lang;
 for (const el of document.querySelectorAll<HTMLElement>('[data-i18n]')) el.textContent = t(el.dataset.i18n!);
 for (const el of document.querySelectorAll<HTMLElement>('[data-i18n-title]')) el.title = t(el.dataset.i18nTitle!);
@@ -81,15 +54,12 @@ document.title = t('CDDA 模型工作室');
 const langSelect = $<HTMLSelectElement>('#ed-lang');
 langSelect.innerHTML = LANGS.map(([l, label]) => `<option value="${l}" ${l === lang ? 'selected' : ''}>${label}</option>`).join('');
 langSelect.addEventListener('change', () => setLang(langSelect.value as Lang));
-const ctx = { get appearance() { return appearance; }, models, textures };
-const stage = new Stage($<HTMLCanvasElement>('#ed-canvas'), appearance, models, textures);
-
+const stage = new Stage($<HTMLCanvasElement>('#ed-canvas'));
 $('#ed-world').textContent = t('墙高 {wall} 格 · 人高 {person} 格', { wall: WORLD.wallHeight, person: WORLD.personHeight });
-$('#ed-pack').textContent = t('基础素材 · {n} 个模型', { n: appearance.modelCount });
+$('#ed-pack').textContent = t('体素素材集 {n} 个 · 模型 {m} 个', { n: voxelSets.length, m: voxItems.size });
 $('#ed-cdda').textContent = catalogVersion ? `CDDA ${catalogVersion.cdda}` : t('未找到 CDDA 对象表');
 
 // ── State ───────────────────────────────────────────────────────────────────────────────
-const params = new URLSearchParams(location.search);
 const KIND_IDS = KINDS.map(([k]) => k);
 const urlKind = KIND_IDS.includes(params.get('kind') as Tab) ? (params.get('kind') as Tab) : null;
 let query = params.get('q') ?? '';
@@ -125,22 +95,14 @@ let layout: Layout = stored<Layout>('vox-editor-layout', ['list', 'grid'], 'list
 let cellSize: CellSize = stored<CellSize>('vox-editor-cell', ['s', 'm', 'l'], 'm');
 const thumbs = new ThumbnailCache();
 
-function modelEntries(): CatalogEntry[] {
-  return appearance.modelKeys().filter((k) => !k.startsWith('edit:')).sort().map((key) => {
-    const url = appearance.model(key)?.url ?? '';
-    return { id: key, name: key, en: url.replace(/^.*\//, ''), sym: '◆', color: 'light_gray', flags: [] };
-  });
-}
-
-const models0 = modelEntries();
 const vox0: CatalogEntry[] = [...voxItems.values()].map((i) => ({
   id: i.key, name: i.file.replace(/^.*\//, '').replace(/\.vox$/i, ''), en: i.entries.map(entryLabel).join(' · '), sym: '▣', color: 'light_gray', flags: [],
   cat: builtinGroup(i.entries[0]?.builtin), voxSet: i.set.id, voxSetName: i.set.set.name,
 }));
-const entriesOf = (t: Tab): CatalogEntry[] => (t === 'model' ? models0 : t === 'vox' ? vox0 : catalog[t]);
+const entriesOf = (k: Tab): CatalogEntry[] => (k === 'vox' ? vox0 : catalog[k]);
 
 // ── Object tree: every kind split into branches ─────────────────────────────────────────
-const branchSegs = (kind: Tab, e: CatalogEntry) => branchOf(kind, e, catalog.labels, kind === 'model' ? appearance.model(e.id) : undefined);
+const branchSegs = (kind: Tab, e: CatalogEntry) => branchOf(kind, e, catalog.labels);
 const tree: TreeNode[] = buildTree(KIND_IDS.map((kind) => ({ kind, entries: entriesOf(kind), branch: (e: CatalogEntry) => branchSegs(kind, e) })));
 const ALL = '';
 const pathCache = new Map<string, string>();
@@ -156,20 +118,11 @@ const kindOf = (path: string) => path.split('/')[0] as Tab;
 const branchLabel = (path: string) => (path === ALL ? t('全部对象') : trail(tree, path).map((n) => n.label).join(' › '));
 const expanded = new Set<string>();
 
-function status(t: Tab, e: CatalogEntry): Status {
-  const key = `${t}:${e.id}`;
+function status(k: Tab, e: CatalogEntry): Status {
+  const key = `${k}:${e.id}`;
   let s = statusCache.get(key);
   if (!s) {
-    if (t === 'model') {
-      const m = appearance.model(e.id);
-      s = m?.fallback ? 'fallback' : 'base';
-    } else if (t === 'vox') {
-      s = 'base';
-    } else if (voxMatch(t, e.id)) {
-      s = 'voxel';
-    } else {
-      s = statusOf(t as CatalogKind, e, appearance);
-    }
+    s = k === 'vox' ? 'library' : voxMatch(k, e.id) ? 'voxel' : 'none';
     statusCache.set(key, s);
   }
   return s;
@@ -234,7 +187,6 @@ function renderList(): void {
     .join('');
   const shown = filter === 'all' ? found : found.filter(({ kind, e }) => status(kind, e) === filter);
   $('#ed-count').textContent = `${branchLabel(branch)} ${t('{n} 项 · 匹配 {m} 项', { n: all.length, m: shown.length })}`;
-  const edited = editedObjects(draft);
   const mixed = branch === ALL;
   const grid = layout === 'grid';
   const list = $('#ed-list');
@@ -243,7 +195,7 @@ function renderList(): void {
     shown.slice(0, LIST_LIMIT).map(({ kind, e }) => {
       const st = status(kind, e);
       const sel = selected?.kind === kind && selected.id === e.id;
-      const mark = edited.has(`${kind}:${e.id}`) ? ' ✎' : '';
+      const mark = '';
       const sym = `<span class="sym" style="color:${symColor(e.color)}">${esc(e.sym)}</span>`;
       if (grid) {
         const url = thumbs.peek(`${kind}:${e.id}`);
@@ -309,38 +261,16 @@ function entryOf(sel: { kind: Tab; id: string }): CatalogEntry | undefined {
   return entriesOf(sel.kind).find((e) => e.id === sel.id);
 }
 
-function currentEdit(kind: EditKind, entry: CatalogEntry): Edit {
-  const savedEdit = readEdit(draft, kind, entry.id);
-  if (savedEdit) return savedEdit;
-  const why = appearance.explain(kind, entry);
-  // A placeholder creature has no model key: choosing one replaces it.
-  const planned = kind === 'monster' && subject?.plan && subject.plan.kind !== 'model';
-  const model = planned ? '' : (subject?.model ?? why.resolved?.model.split('|')[0] ?? '');
-  return { model, scale: why.resolved?.scale ?? 1, rotY: 0, y: 0, lieFlat: Boolean(appearance.model(model)?.lieFlat), tint: Boolean(why.resolved?.tint) };
-}
-
-function usesOf(key: string): { kind: EditKind; id: string; name: string }[] {
-  const out: { kind: EditKind; id: string; name: string }[] = [];
-  for (const kind of ['ter', 'furn', 'item', 'vehicle', 'monster'] as const) {
-    for (const e of catalog[kind]) {
-      const r = appearance.resolve(kind, e);
-      if (r && r.model.split('|').includes(key)) out.push({ kind, id: e.id, name: e.name });
-    }
-  }
-  return out;
-}
-
-/** How an object is shown: its voxel model when a set has one, else the appearance rules. */
+/** An object's voxel model when a set has one, else its stand-in box. */
 function buildFor(kind: Tab, entry: CatalogEntry, v: number): Promise<Subject> {
-  if (kind === 'model') return buildModelSubject(ctx, entry.id);
   if (kind === 'vox') return buildVoxSubject(voxItems.get(entry.id)!);
   const m = voxMatch(kind, entry.id, v);
   if (m) return buildVoxSubject(m.item, m, m.entry.tint ? colorOf(entry.color) : undefined);
-  return buildSubject(ctx, kind as CatalogKind, entry, v);
+  return Promise.resolve(buildPlaceholder(kind as CatalogKind, entry));
 }
 
-/** Rebuild the shown object (after a selection, variant or edit change). */
-async function show(keepForm = false): Promise<void> {
+/** Rebuild the shown object (after a selection or variant change). */
+async function show(): Promise<void> {
   const sel = selected;
   const entry = sel && entryOf(sel);
   const token = ++loadToken;
@@ -351,32 +281,20 @@ async function show(keepForm = false): Promise<void> {
     return;
   }
   $('#ed-loading').hidden = false;
-  const built = await buildFor(sel.kind, entry, variant);
+  let built: Subject;
+  try {
+    built = await buildFor(sel.kind, entry, variant);
+  } catch (err) {
+    built = { ...buildPlaceholder(sel.kind === 'vox' ? 'furn' : sel.kind, entry), source: t('模型读取失败：{error}', { error: String((err as Error).message ?? err) }) };
+  }
   if (token !== loadToken) return;
   $('#ed-loading').hidden = true;
   subject = built;
-  measure = stage.show(built.object, built.actor, built.rootScale);
-  // Skinned characters get their pose on the first animation frame: measure again then.
-  if (built.actor) setTimeout(() => token === loadToken && (measure = stage.measure(), $('#ed-measure').innerHTML = measureHtml(measure)), 120);
-  if (!keepForm) stage.view(view);
+  measure = stage.show(built.object);
+  stage.view(view);
   $('#ed-measure').innerHTML = measureHtml(measure);
   renderToolbar();
-  const kind = sel.kind;
-  const editable = isEditable(kind);
-  renderInspector($('#ed-inspector'), appearance, {
-    kind,
-    branch: branchLabel(objectPath(kind, entry)),
-    entry,
-    status: status(kind, entry),
-    why: editable ? appearance.explain(kind, entry) : null,
-    subject: built,
-    edit: editable ? currentEdit(kind, entry) : null,
-    hasSaved: editable && Boolean(readEdit(saved, kind, entry.id)),
-    dirty: JSON.stringify(draft) !== JSON.stringify(saved),
-    uses: kind === 'model' ? usesOf(sel.id) : undefined,
-    voxel: Boolean(voxMatch(kind, entry.id, variant)),
-  }, keepForm);
-  updateSavedBadge();
+  renderInspector($('#ed-inspector'), { kind: sel.kind, branch: branchLabel(objectPath(sel.kind, entry)), entry, status: status(sel.kind, entry), subject: built });
 }
 
 function select(kind: Tab, id: string): void {
@@ -400,68 +318,15 @@ function select(kind: Tab, id: string): void {
 // ── Toolbar ─────────────────────────────────────────────────────────────────────────────
 const VIEWS: [View, string][] = [['iso', t('斜视')], ['front', t('正面')], ['side', t('侧面')], ['top', t('俯视')]];
 const TOGGLES: [keyof Stage['options'], string][] = [['grid', t('网格')], ['wall', t('参照墙')], ['person', t('参照人')], ['bbox', t('包围盒')], ['wireframe', t('线框')]];
-const ANIMS: [ClipRole, string][] = [['idle', t('待机')], ['walk', t('行走')], ['attack', t('攻击')], ['hit', t('受击')], ['die', t('死亡')]];
 
 function renderToolbar(): void {
   $('#ed-views').innerHTML = `<label>${t('视角')}</label>${VIEWS.map(([v, l]) => `<button type="button" data-view="${v}" class="${v === view ? 'on' : ''}">${l}</button>`).join('')}`;
   $('#ed-toggles').innerHTML = TOGGLES.map(([k, l]) => `<button type="button" data-toggle="${k}" class="${stage.options[k] ? 'on' : ''}">${l}</button>`).join('');
   const variants = subject?.variants.length ?? 0;
-  const monster = selected?.kind === 'monster';
   const vbox = $('#ed-variants');
-  vbox.hidden = !(variants > 1);
-  vbox.innerHTML = `<label>${t('变体')}</label><button type="button" data-variant="-1">‹</button><span class="mono" style="padding:0 4px">${monster ? `#${variant}` : `${(variant % Math.max(1, variants)) + 1}/${variants}`}</span><button type="button" data-variant="1">›</button>`;
-  const abox = $('#ed-anims');
-  abox.hidden = !subject?.actor;
-  abox.innerHTML = `<label>${t('动画')}</label>${ANIMS.map(([r, l]) => `<button type="button" data-anim="${r}">${l}</button>`).join('')}`;
-}
-
-// ── Editing ─────────────────────────────────────────────────────────────────────────────
-let previewTimer: ReturnType<typeof setTimeout> | undefined;
-
-function setDraft(doc: OverrideDoc, keepForm: boolean): Promise<void> {
-  draft = doc;
-  appearance = makeAppearance(draft);
-  models.use(appearance);
-  statusCache.clear();
-  thumbs.clear();
-  renderList();
-  return show(keepForm);
-}
-
-function preview(): Promise<void> {
-  if (!selected || !isEditable(selected.kind)) return Promise.resolve();
-  const kind = selected.kind;
-  const edit = readForm($('#ed-inspector'));
-  if (!edit.model || !appearance.model(edit.model)) {
-    $('#ed-saved').textContent = edit.model ? t('没有模型键 {key}', { key: edit.model }) : t('请选择模型');
-    $('#ed-saved').className = 'ed-saved error';
-    return Promise.resolve();
-  }
-  return setDraft(writeEdit(draft, kind, selected.id, edit, makeAppearance(removeEdit(draft, kind, selected.id)).model(edit.model)), true);
-}
-
-async function save(): Promise<void> {
-  if (!apiAvailable) {
-    $('#ed-saved').textContent = t('保存需要开发服务器（npm run dev）');
-    $('#ed-saved').className = 'ed-saved error';
-    return;
-  }
-  const res = await fetch('/api/editor/overrides', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(draft) });
-  const body = (await res.json()) as OverrideDoc & { error?: string };
-  if (!res.ok) {
-    $('#ed-saved').textContent = t('保存失败：{error}', { error: body.error ?? '' });
-    $('#ed-saved').className = 'ed-saved error';
-    return;
-  }
-  saved = body;
-  await setDraft(saved, false);
-}
-
-function updateSavedBadge(): void {
-  const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
-  const n = editedObjects(saved).size;
-  $('#ed-saved').textContent = dirty ? t('有未保存的修改') : t('本地覆盖 {n} 项', { n }) + (apiAvailable ? '' : t('（只读）'));
-  $('#ed-saved').className = `ed-saved${dirty ? ' dirty' : ''}`;
+  vbox.hidden = variants < 2;
+  vbox.innerHTML = `<label>${t('变体')}</label><button type="button" data-variant="-1">‹</button><span class="mono" style="padding:0 4px">${(variant % Math.max(1, variants)) + 1}/${variants}</span><button type="button" data-variant="1">›</button>`;
+  $('#ed-anims').hidden = true;
 }
 
 // ── Events ──────────────────────────────────────────────────────────────────────────────
@@ -541,56 +406,8 @@ document.querySelector('.ed-toolbar')!.addEventListener('click', (e) => {
   } else if (b.dataset.variant) {
     variant = Math.max(0, variant + Number(b.dataset.variant));
     void show();
-  } else if (b.dataset.anim) {
-    stage.animated?.play(b.dataset.anim as ClipRole, b.dataset.anim !== 'idle' && b.dataset.anim !== 'walk');
   }
 });
-
-const inspector = $('#ed-inspector');
-inspector.addEventListener('input', (e) => {
-  const t = e.target as HTMLInputElement;
-  if (t.id === 'f-scale-range') inspector.querySelector<HTMLInputElement>('#f-scale')!.value = Math.exp(Number(t.value)).toFixed(3);
-  if (t.id === 'f-scale') inspector.querySelector<HTMLInputElement>('#f-scale-range')!.value = String(Math.log(Number(t.value) || 1));
-  if (t.id === 'f-height') return;
-  clearTimeout(previewTimer);
-  previewTimer = setTimeout(() => void preview(), t.id === 'f-model' ? 350 : 120);
-});
-inspector.addEventListener('change', (e) => {
-  if ((e.target as HTMLElement).matches('select, input[type=checkbox]')) void preview();
-});
-inspector.addEventListener('click', (e) => {
-  const t = e.target as HTMLElement;
-  const link = t.closest<HTMLElement>('a[data-kind]');
-  if (link) return select(link.dataset.kind as EditKind, link.dataset.id!);
-  if (t.id === 'f-save') void save();
-  if (t.id === 'f-revert') void setDraft(saved, false);
-  if (t.id === 'f-reset' && selected && isEditable(selected.kind)) void setDraft(removeEdit(draft, selected.kind, selected.id), false);
-  if (t.id === 'f-fit' && measure) {
-    // Target height in metres → scale factor relative to the size shown now.
-    const metres = Number(inspector.querySelector<HTMLInputElement>('#f-height')!.value);
-    const scaleInput = inspector.querySelector<HTMLInputElement>('#f-scale')!;
-    if (metres > 0 && measure.height > 0) {
-      const current = Number(scaleInput.value) || 1;
-      scaleInput.value = ((current * metres) / (measure.height * (1.8 / WORLD.personHeight))).toFixed(3);
-      scaleInput.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-  }
-});
-window.addEventListener('keydown', (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key === 's') {
-    e.preventDefault();
-    void save();
-  }
-});
-window.addEventListener('beforeunload', (e) => {
-  if (JSON.stringify(draft) !== JSON.stringify(saved)) e.preventDefault();
-});
-
-// Model-key suggestions for the edit form.
-const keys = document.createElement('datalist');
-keys.id = 'ed-model-keys';
-keys.innerHTML = appearance.modelKeys().filter((k) => !k.startsWith('edit:')).map((k) => `<option value="${esc(k)}"></option>`).join('');
-document.body.appendChild(keys);
 
 revealBranch();
 renderTree();
@@ -605,8 +422,8 @@ Object.assign(window, {
     get frames() { return stage.frames; },
     get selected() { return selected; },
     get measure() { return measure; },
-    get subject() { return subject && { source: subject.source, model: subject.model, variants: subject.variants, notes: subject.notes }; },
-    get status() { return selected && selected.kind !== 'model' ? status(selected.kind, entryOf(selected)!) : null; },
+    get subject() { return subject && { source: subject.source, variants: subject.variants, notes: subject.notes }; },
+    get status() { return selected ? status(selected.kind, entryOf(selected)!) : null; },
     get branch() { return branch; },
     get layout() { return { layout, cellSize }; },
     setLayout: (l: Layout, size?: CellSize) => setLayout(l, size),
@@ -615,7 +432,5 @@ Object.assign(window, {
     get world() { return { ...WORLD }; },
     catalogSizes: Object.fromEntries(KIND_IDS.map((k) => [k, entriesOf(k).length])),
     select: (kind: Tab, id: string) => select(kind, id),
-    draft: () => draft,
-    saved: () => saved,
   },
 });

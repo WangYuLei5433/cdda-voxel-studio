@@ -1,26 +1,10 @@
-// World proportions. One tile is one unit horizontally; heights follow the wall height.
-// The default (CC0 asset) world keeps its compact look; the metric world uses real sizes:
-// walls 2.45 m and people 1.8 m, so real-size models stand in the right proportion.
+// World proportions, cataclysm-3d's voxel scale: one tile is one unit (a metre) across,
+// 8 voxels per tile; a z-level is 16 voxels (2 tiles) high and a person about 13 voxels.
+export const VOXELS_PER_TILE = 8;
+
 export const WORLD = {
-  /** Wall height in tiles. */
-  wallHeight: 1.4,
+  /** Wall height (one z-level) in tiles. */
+  wallHeight: 16 / VOXELS_PER_TILE,
   /** A grown person's height in tiles. */
-  personHeight: 0.95,
+  personHeight: 13 / VOXELS_PER_TILE,
 };
-
-const DEFAULT = { ...WORLD };
-
-/** Switch to metric proportions (call before the scene is built). */
-export function useMetricWorld(metric: boolean): void {
-  Object.assign(WORLD, metric ? { wallHeight: 2.45, personHeight: 1.8 } : DEFAULT);
-}
-
-/** cataclysm-3d's voxel proportions: a z-level is 2 × voxels_per_tile voxels, a person 13 voxels. */
-export function useVoxelWorld(voxelsPerTile = 8): void {
-  Object.assign(WORLD, { wallHeight: 2, personHeight: 13 / voxelsPerTile });
-}
-
-/** Scale for models made for the default world (people 0.95 tall) shown in the current one. */
-export function legacyCreatureScale(): number {
-  return WORLD.personHeight / DEFAULT.personHeight;
-}

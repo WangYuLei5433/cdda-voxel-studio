@@ -1,15 +1,11 @@
-// The editor's 3D stage: one object shown exactly as the game places it, on a tile grid,
-// next to a wall segment at the game's wall height and a person at the game's person height.
-// Sizes come from the same code the game uses (ModelLibrary.staticParts + the map layer's
-// placement scale; the creature plan for monsters), so the measured size is the in-game size.
+// The studio's 3D stage: one object on its tile, on a tile grid, next to a wall one z-level
+// high and a person at cataclysm-3d's person height (src/render/world-scale.ts).
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
-import type { Appearance } from '../render/appearance';
-import type { ModelInstance, ModelLibrary } from '../render/models';
-import { copyMaterial, type TextureLibrary } from '../render/textures';
-import { wallPartGeometry, WALL_THICKNESS } from '../render/wall-geometry';
 import { WORLD } from '../render/world-scale';
+
+const WALL_THICKNESS = 0.2;
 
 export type View = 'iso' | 'front' | 'side' | 'top';
 
@@ -38,26 +34,18 @@ export class Stage {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(35, 1, 0.02, 400);
   private readonly controls: OrbitControls;
-  private readonly clock = new THREE.Clock();
   private readonly grid = new THREE.Group();
   private readonly wall = new THREE.Group();
   private readonly person = new THREE.Group();
   private readonly subjectRoot = new THREE.Group();
   private readonly bboxHelper = new THREE.Box3Helper(new THREE.Box3(), 0xff9f1c);
-  private actor: ModelInstance | null = null;
-  private personActor: ModelInstance | null = null;
   private subjectBox = new THREE.Box3();
   options: StageOptions = { grid: true, wall: true, person: true, bbox: true, wireframe: false };
   /** Called after each frame (tests read the renderer's state). */
   onFrame: (() => void) | null = null;
   frames = 0;
 
-  constructor(
-    readonly canvas: HTMLCanvasElement,
-    appearance: Appearance,
-    readonly models: ModelLibrary,
-    readonly textures: TextureLibrary,
-  ) {
+  constructor(readonly canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
@@ -93,9 +81,6 @@ export class Stage {
   }
 
   private frame(): void {
-    const dt = Math.min(this.clock.getDelta(), 0.05);
-    this.actor?.update(dt);
-    this.personActor?.update(dt);
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
     this.frames++;
@@ -123,19 +108,11 @@ export class Stage {
     this.grid.add(lines);
   }
 
-  /** A three-tile wall run with the game's thin-wall geometry and height. */
+  /** A plain wall three tiles long and one z-level high, running north–south. */
   private buildWall(): void {
-    const material = this.textures.surface('plaster_wall') ?? new THREE.MeshStandardMaterial({ color: 0xb8b0a0, roughness: 1 });
-    for (let i = -1; i <= 1; i++) {
-      for (const part of ['post', 'armPos', 'armNeg'] as const) {
-        const m = new THREE.Mesh(wallPartGeometry(part, WORLD.wallHeight), material);
-        m.castShadow = m.receiveShadow = true;
-        // Runs along z (rotY −π/2), like a west wall of a room.
-        m.rotation.y = -Math.PI / 2;
-        m.position.set(0, 0, i);
-        this.wall.add(m);
-      }
-    }
+    const m = new THREE.Mesh(new THREE.BoxGeometry(WALL_THICKNESS, WORLD.wallHeight, 3).translate(0, WORLD.wallHeight / 2, 0), new THREE.MeshStandardMaterial({ color: 0xb8b0a0, roughness: 1 }));
+    m.castShadow = m.receiveShadow = true;
+    this.wall.add(m);
   }
 
   /** The reference person: a capsule at the person height. */
@@ -152,31 +129,26 @@ export class Stage {
     for (const c of [...this.subjectRoot.children]) this.subjectRoot.remove(c);
     this.subjectRoot.scale.set(1, 1, 1);
     this.subjectRoot.rotation.set(0, 0, 0);
-    this.actor = null;
     this.subjectBox.makeEmpty();
     this.bboxHelper.visible = false;
   }
 
   /** Show a static object at the tile centre (already transformed as the game places it). */
-  show(object: THREE.Object3D, actor: ModelInstance | null = null, rootScale: [number, number, number] = [1, 1, 1]): Measure {
+  show(object: THREE.Object3D): Measure {
     this.clear();
-    this.subjectRoot.scale.set(...rootScale);
     this.subjectRoot.add(object);
-    this.actor = actor;
     object.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
       mesh.castShadow = true;
       mesh.receiveShadow = true;
-      // Own materials, so the wireframe switch never touches cached ones (keeping shader hooks).
-      mesh.material = Array.isArray(mesh.material) ? mesh.material.map(copyMaterial) : copyMaterial(mesh.material);
     });
     const measured = this.measure();
     this.applyOptions();
     return measured;
   }
 
-  /** Measure the shown object (skinned meshes in their current pose). */
+  /** Measure the shown object. */
   measure(): Measure {
     this.subjectRoot.updateMatrixWorld(true);
     const box = new THREE.Box3();
@@ -232,11 +204,6 @@ export class Stage {
     this.camera.near = Math.max(0.01, distance / 200);
     this.camera.updateProjectionMatrix();
     this.controls.update();
-  }
-
-  /** The animated object (monsters), to switch animations. */
-  get animated(): ModelInstance | null {
-    return this.actor;
   }
 
   /** Picture of the canvas (for thumbnails / tests). */
