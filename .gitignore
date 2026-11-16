@@ -1,0 +1,19 @@
+node_modules/
+dist/
+test-results/
+playwright-report/
+.DS_Store
+.vite/
+*.local
+*.tmp
+
+# CDDA checkout (or point $CDDA_DIR at one)
+vendor/
+
+# Downloaded open-licensed models and textures (npm run assets)
+public/assets/models/
+public/assets/textures/
+
+# Local edits saved by the studio
+public/data/appearance.local.json
+build/

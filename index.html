@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CDDA Model Studio</title>
+  </head>
+  <body>
+    <div id="ed">
+      <header class="ed-head">
+        <strong class="ed-title">CDDA 模型工作室</strong>
+        <span id="ed-world" class="ed-badge"></span>
+        <span id="ed-pack" class="ed-badge"></span>
+        <span class="ed-spacer"></span>
+        <span id="ed-saved" class="ed-saved"></span>
+      </header>
+
+      <aside class="ed-left">
+        <div class="ed-picker">
+          <button type="button" id="ed-branch" class="ed-branch" aria-haspopup="tree" aria-expanded="false" title="选择分类"></button>
+          <div id="ed-tree" class="ed-tree" role="tree" hidden></div>
+        </div>
+        <input id="ed-search" type="search" placeholder="搜索 id、中文名或英文名…" autocomplete="off" spellcheck="false" />
+        <div class="ed-filters" id="ed-filters"></div>
+        <div class="ed-listbar"><span id="ed-count" class="ed-count"></span><div id="ed-layout" class="ed-layout"></div></div>
+        <ul id="ed-list" class="ed-list" role="listbox"></ul>
+      </aside>
+
+      <main class="ed-stage">
+        <canvas id="ed-canvas"></canvas>
+        <div class="ed-toolbar">
+          <div class="ed-group" id="ed-views"></div>
+          <div class="ed-group" id="ed-toggles"></div>
+          <div class="ed-group" id="ed-variants" hidden></div>
+          <div class="ed-group" id="ed-anims" hidden></div>
+        </div>
+        <div id="ed-measure" class="ed-measure"></div>
+        <div id="ed-loading" class="ed-loading" hidden>加载模型…</div>
+      </main>
+
+      <aside class="ed-right" id="ed-inspector">
+        <p class="ed-empty">从左侧选择一个对象。</p>
+      </aside>
+    </div>
+    <script type="module" src="/src/editor/main.ts"></script>
+  </body>
+</html>
