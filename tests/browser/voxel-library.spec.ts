@@ -33,3 +33,27 @@ test('voxel library grid', async ({ page }) => {
   await page.waitForTimeout(6000);
   await page.screenshot({ path: 'build/vox-grid.png' });
 });
+
+// CDDA creatures get the set's model for their built-in type (tools/classify/builtin-kinds.mjs).
+for (const [id, file] of [['mon_triffid', 'plant_creature'], ['mon_zombie', 'zombie'], ['mon_civilian_police', 'humanoid'], ['mon_dog', 'quadruped'], ['mon_chicken', 'bird']]) {
+  test(`creature ${id} shows ${file}.vox`, async ({ page }) => {
+    test.setTimeout(90_000);
+    await page.setViewportSize({ width: 1500, height: 900 });
+    await page.goto(`/?kind=monster&id=${id}&lang=zh_CN`);
+    await expect.poll(() => page.evaluate(ready), { timeout: 60_000 }).toBe(true);
+    await expect(page.locator('#ed-inspector')).toContainText(`starter/builtin/${file}.vox`);
+    await expect(page.locator('#ed-inspector')).toContainText(`按原型匹配：${file}`);
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: `build/vox-creature-${id}.png` });
+  });
+}
+
+test('plants branch as a thumbnail grid', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1500, height: 900 });
+  await page.addInitScript(() => { localStorage.setItem('vox-editor-layout', 'grid'); localStorage.setItem('vox-editor-cell', 'm'); });
+  await page.goto('/?kind=monster&id=mon_triffid&branch=monster/PLANT&lang=zh_CN');
+  await expect.poll(() => page.evaluate(ready), { timeout: 60_000 }).toBe(true);
+  await page.waitForTimeout(5000);
+  await page.screenshot({ path: 'build/vox-plants-grid.png' });
+});

@@ -113,9 +113,10 @@ export const KIND_LABEL: Record<CatalogKind, string> = { ter: t('地形'), furn:
 export const isEditable = (kind: string): kind is EditKind => ['ter', 'furn', 'item', 'monster', 'vehicle'].includes(kind);
 
 /** How an object is drawn, summarised for the list. */
-export type Status = 'override' | 'fallback' | 'base' | 'texture' | 'procedural' | 'hidden' | 'none';
+export type Status = 'voxel' | 'override' | 'fallback' | 'base' | 'texture' | 'procedural' | 'hidden' | 'none';
 
 export const STATUS_LABEL: Record<Status, string> = {
+  voxel: t('体素模型'),
   override: t('本地覆盖'),
   fallback: t('材质回退'),
   base: t('基础模型'),

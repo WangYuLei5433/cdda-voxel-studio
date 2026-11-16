@@ -9,6 +9,8 @@ import { ModelLibrary, type ClipRole } from '../render/models';
 import { TextureLibrary } from '../render/textures';
 import { useMetricWorld, useVoxelWorld, WORLD } from '../render/world-scale';
 import { builtinGroup, entryLabel, libraryItems, loadVoxelSets } from '../vox/library';
+import { VoxMatcher, type BuiltinKinds } from '../vox/match';
+import { colorOf } from '../render/classify';
 import { applyNames, EMPTY_CATALOG, type CatalogIndex, type CatalogNames, isEditable, STATUS_LABEL, search, statusOf, type CatalogEntry, type CatalogKind, type EditorCatalog, type Status } from './catalog';
 import { esc, measureHtml, readForm, renderInspector } from './inspector';
 import { editedObjects, emptyDoc, readEdit, removeEdit, writeEdit, type Edit, type EditKind, type OverrideDoc } from './overrides';
@@ -19,7 +21,7 @@ import { branchOf, buildTree, inBranch, KIND_NAME, KINDS, pathOf, trail, type Ki
 import { lang, LANGS, setLang, t, type Lang } from './i18n';
 
 type Tab = Kind;
-const FILTERS: (Status | 'all')[] = ['all', 'fallback', 'base', 'texture', 'procedural', 'none', 'hidden', 'override'];
+const FILTERS: (Status | 'all')[] = ['all', 'voxel', 'fallback', 'base', 'texture', 'procedural', 'none', 'hidden', 'override'];
 const LIST_LIMIT = 400;
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
@@ -63,6 +65,12 @@ const catalog: EditorCatalog = { ...EMPTY_CATALOG, ...((catalogVersion && (await
 // Object names in the interface language (English needs no file).
 const namesPath = lang === 'en' ? undefined : catalogVersion?.langs?.[lang]?.path;
 applyNames(catalog, namesPath ? await fetchJson<CatalogNames>(`/data/cdda/${namesPath}`) : null);
+// Voxel models for CDDA objects: id → looks_like → built-in type (the table of built-in types
+// is generated per CDDA version by tools/classify/builtin-kinds.mjs).
+const builtinKinds = catalogVersion && voxelSets.length ? await fetchJson<BuiltinKinds>(`/data/cdda/${catalogVersion.id}/builtin-kinds.json`) : null;
+const matcher = new VoxMatcher(voxelSets, catalog, builtinKinds, voxItems);
+/** The voxel model a CDDA object gets from the loaded sets (null for other tabs or none). */
+const voxMatch = (kind: Tab, id: string, v = 0) => (kind === 'model' || kind === 'vox' || !matcher.active ? null : matcher.find(kind, id, v));
 
 // Static texts, the language picker and the page language.
 document.documentElement.lang = lang === 'zh_CN' ? 'zh' : lang;
@@ -157,6 +165,8 @@ function status(t: Tab, e: CatalogEntry): Status {
       s = m?.fallback ? 'fallback' : 'base';
     } else if (t === 'vox') {
       s = 'base';
+    } else if (voxMatch(t, e.id)) {
+      s = 'voxel';
     } else {
       s = statusOf(t as CatalogKind, e, appearance);
     }
@@ -265,7 +275,7 @@ const thumbObserver = new IntersectionObserver((records) => {
     }
     const entry = entriesOf(kind).find((x) => x.id === id);
     if (!entry) continue;
-    void thumbs.request(key, () => (kind === 'model' ? buildModelSubject(ctx, id) : kind === 'vox' ? buildVoxSubject(voxItems.get(id)!) : buildSubject(ctx, kind as CatalogKind, entry, 0))).then((url) => {
+    void thumbs.request(key, () => buildFor(kind, entry, 0)).then((url) => {
       const cell = r.target as HTMLElement;
       thumbObserver.unobserve(cell);
       cell.classList.remove('wait');
@@ -320,6 +330,15 @@ function usesOf(key: string): { kind: EditKind; id: string; name: string }[] {
   return out;
 }
 
+/** How an object is shown: its voxel model when a set has one, else the appearance rules. */
+function buildFor(kind: Tab, entry: CatalogEntry, v: number): Promise<Subject> {
+  if (kind === 'model') return buildModelSubject(ctx, entry.id);
+  if (kind === 'vox') return buildVoxSubject(voxItems.get(entry.id)!);
+  const m = voxMatch(kind, entry.id, v);
+  if (m) return buildVoxSubject(m.item, m, m.entry.tint ? colorOf(entry.color) : undefined);
+  return buildSubject(ctx, kind as CatalogKind, entry, v);
+}
+
 /** Rebuild the shown object (after a selection, variant or edit change). */
 async function show(keepForm = false): Promise<void> {
   const sel = selected;
@@ -332,7 +351,7 @@ async function show(keepForm = false): Promise<void> {
     return;
   }
   $('#ed-loading').hidden = false;
-  const built = sel.kind === 'model' ? await buildModelSubject(ctx, sel.id) : sel.kind === 'vox' ? await buildVoxSubject(voxItems.get(sel.id)!) : await buildSubject(ctx, sel.kind as CatalogKind, entry, variant);
+  const built = await buildFor(sel.kind, entry, variant);
   if (token !== loadToken) return;
   $('#ed-loading').hidden = true;
   subject = built;
@@ -355,6 +374,7 @@ async function show(keepForm = false): Promise<void> {
     hasSaved: editable && Boolean(readEdit(saved, kind, entry.id)),
     dirty: JSON.stringify(draft) !== JSON.stringify(saved),
     uses: kind === 'model' ? usesOf(sel.id) : undefined,
+    voxel: Boolean(voxMatch(kind, entry.id, variant)),
   }, keepForm);
   updateSavedBadge();
 }

@@ -105,6 +105,8 @@ export interface InspectorModel {
   edit: Edit | null;
   hasSaved: boolean;
   dirty: boolean;
+  /** Shown from a voxel set (the appearance rules and their edit form do not apply). */
+  voxel?: boolean;
   /** Model tab: objects that use this model. */
   uses?: { kind: EditKind; id: string; name: string }[];
 }
@@ -124,10 +126,12 @@ export function renderInspector(host: HTMLElement, appearance: Appearance, m: In
   const uses = m.uses
     ? `<section class="ed-sec"><h3>${t('使用这个模型的对象（{n}）', { n: m.uses.length })}</h3><ul class="ed-uses">${m.uses.slice(0, 300).map((u) => `<li><a data-kind="${u.kind}" data-id="${esc(u.id)}">${KIND_LABEL[u.kind]} · ${esc(u.name)}</a> <span class="mono" style="color:var(--muted)">${esc(u.id)}</span></li>`).join('')}</ul></section>`
     : '';
-  const readOnly = !m.edit && m.kind !== 'model' && m.kind !== 'vox'
+  const readOnly = m.voxel
+    ? `<section class="ed-sec"><h3>${t('编辑')}</h3><p class="ed-hint">${t('这个模型来自体素素材集。要改它，请在 MagicaVoxel 里修改素材集里的文件；要换成别的模型，请修改 voxelset.json。')}</p></section>`
+    : !m.edit && m.kind !== 'model' && m.kind !== 'vox'
     ? `<section class="ed-sec"><h3>${t('编辑')}</h3><p class="ed-hint">${t('游戏不为这一类对象查找模型（见上方说明），这里只能查看。需要给它换模型时，要先让游戏支持这一类。')}</p></section>`
     : '';
-  host.innerHTML = `<div id="ins-info">${info}</div><div id="ins-edit">${m.edit ? editForm(m.edit, m.hasSaved, m.dirty) : readOnly}</div>${uses}`;
+  host.innerHTML = `<div id="ins-info">${info}</div><div id="ins-edit">${m.edit && !m.voxel ? editForm(m.edit, m.hasSaved, m.dirty) : readOnly}</div>${uses}`;
 }
 
 /** Read the edit form. */

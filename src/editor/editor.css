@@ -101,6 +101,7 @@ input:focus, select:focus, button:focus-visible { outline: 1px solid var(--accen
 
 .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: var(--muted); }
 .st-override { background: var(--info); }
+.st-voxel { background: var(--accent); }
 .st-fallback { background: var(--warn); }
 .st-base { background: #a68bd6; }
 .st-texture { background: #b6a77c; }

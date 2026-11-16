@@ -93,12 +93,15 @@ export function fetchVox(item: VoxItem): Promise<VoxModel> {
   return p;
 }
 
-/** The mesh of an item as its first entry places it (offset in voxels, scale, emissive). */
-export async function buildVox(item: VoxItem): Promise<{ object: THREE.Object3D; model: VoxModel; problems: string[] }> {
+/**
+ * The mesh of an item as `entry` (default: its first entry) places it: offset in voxels,
+ * scale, emissive; `tint` multiplies the colors (an entry with "tint": true, by the object's color).
+ */
+export async function buildVox(item: VoxItem, entry?: VoxEntry, tint?: number): Promise<{ object: THREE.Object3D; model: VoxModel; problems: string[] }> {
   const model = await fetchVox(item);
   const vpt = item.set.set.voxels_per_tile;
-  const e = item.entries[0] ?? {};
-  const mesh = voxObject(model, vpt, { emissive: Boolean(e.emissive) });
+  const e = entry ?? item.entries[0] ?? {};
+  const mesh = voxObject(model, vpt, { emissive: Boolean(e.emissive), ...(tint !== undefined ? { tint } : {}) });
   const root = new THREE.Group();
   root.add(mesh);
   if (Array.isArray(e.offset)) mesh.position.set(e.offset[0] / vpt, e.offset[1] / vpt, e.offset[2] / vpt);

@@ -15,6 +15,7 @@ import { isEditable, monsterInfo, type CatalogEntry, type CatalogKind } from './
 import type { EditKind } from './overrides';
 import { t } from './i18n';
 import { buildVox, entryLabel, type VoxItem } from '../vox/library';
+import type { VoxMatch } from '../vox/match';
 
 export interface Subject {
   object: THREE.Object3D;
@@ -224,10 +225,13 @@ export async function buildSubject(ctx: Context, kind: CatalogKind, entry: Catal
 }
 
 /** A voxel model as its first voxel-set entry places it, with its size and checks. */
-export async function buildVoxSubject(item: VoxItem): Promise<Subject> {
-  const { object, model, problems } = await buildVox(item);
+export async function buildVoxSubject(item: VoxItem, match?: VoxMatch, tint?: number): Promise<Subject> {
+  const { object, model, problems } = await buildVox(item, match?.entry, tint);
   const [x, y, z] = model.size;
+  const how = match && (match.via === 'id' ? t('按 id 匹配') : match.via === 'looks_like' ? t('按 looks_like 匹配：{id}', { id: match.matched }) : t('按原型匹配：{type}', { type: match.matched }));
   const notes = [
+    ...(match ? [t('体素素材集 {set}：{how}', { set: match.set.set.name, how: how! })] : []),
+    ...(tint !== undefined ? [t('按 CDDA 颜色染色')] : []),
     t('{x} × {y} × {z} 体素（宽 × 深 × 高），{n} 个体素', { x, y, z, n: model.voxels.length / 4 }),
     ...item.entries.map((e) => t('绑定：{what}', { what: entryLabel(e) })),
     ...(model.modelCount > 1 ? [t('文件里有 {n} 个模型，cataclysm-3d 只用第一个', { n: model.modelCount })] : []),
