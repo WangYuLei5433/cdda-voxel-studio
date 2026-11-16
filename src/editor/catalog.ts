@@ -30,6 +30,9 @@ export interface CatalogEntry extends Describable {
   phase?: string;
   /** Traps: never visible (script triggers). */
   hidden?: boolean;
+  /** Voxel models: the set's folder and name. */
+  voxSet?: string;
+  voxSetName?: string;
   /** The display name is the studio's own translation (the official one has none). */
   unofficialName?: boolean;
   /** Translation context of the name, when it has one. */

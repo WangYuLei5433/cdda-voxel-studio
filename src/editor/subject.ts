@@ -14,6 +14,7 @@ import type { CatalogFeature } from '../shared/protocol';
 import { isEditable, monsterInfo, type CatalogEntry, type CatalogKind } from './catalog';
 import type { EditKind } from './overrides';
 import { t } from './i18n';
+import { buildVox, entryLabel, type VoxItem } from '../vox/library';
 
 export interface Subject {
   object: THREE.Object3D;
@@ -221,6 +222,26 @@ export async function buildSubject(ctx: Context, kind: CatalogKind, entry: Catal
   }
   return { object, actor: null, rootScale: [1, 1, 1], model: null, placeScale: 1, variants, source: t('无模型'), notes };
 }
+
+/** A voxel model as its first voxel-set entry places it, with its size and checks. */
+export async function buildVoxSubject(item: VoxItem): Promise<Subject> {
+  const { object, model, problems } = await buildVox(item);
+  const [x, y, z] = model.size;
+  const notes = [
+    t('{x} × {y} × {z} 体素（宽 × 深 × 高），{n} 个体素', { x, y, z, n: model.voxels.length / 4 }),
+    ...item.entries.map((e) => t('绑定：{what}', { what: entryLabel(e) })),
+    ...(model.modelCount > 1 ? [t('文件里有 {n} 个模型，cataclysm-3d 只用第一个', { n: model.modelCount })] : []),
+    ...problems.map((p) => VOX_PROBLEM[p] ?? p),
+  ];
+  return { object, actor: null, rootScale: [1, 1, 1], model: null, placeScale: 1, variants: [], source: `${item.set.id}/${item.file}`, notes };
+}
+
+const VOX_PROBLEM: Record<string, string> = {
+  size: t('超过 256 体素的尺寸上限'),
+  floating: t('最底层是空的：模型会悬在地面上方'),
+  'odd-width': t('宽或深与每格体素数的奇偶不同：无法正好居中'),
+  empty: t('模型是空的'),
+};
 
 /** A model-library entry on its own, at the size its entry gives it (placement scale 1). */
 export async function buildModelSubject(ctx: Context, key: string): Promise<Subject> {

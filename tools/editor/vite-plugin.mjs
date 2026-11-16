@@ -1,10 +1,12 @@
 // Dev-server endpoints for the studio (index.html):
 //   GET /api/editor/overrides  → public/data/appearance.local.json (or an empty document)
 //   PUT /api/editor/overrides  → validate and write it (git-ignored, local only)
+//   GET /api/voxel/sets        → names of the voxel sets under vendor/voxel/ (folders with voxelset.json)
+//   GET /voxel/<set>/<file>    → a file of one of those sets
 // The CDDA object catalog is a static file (public/data/cdda, tools/editor/catalog.mjs --write).
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, normalize, sep } from 'node:path';
 
 
 const KINDS = new Set(['ter', 'furn', 'item', 'monster', 'vehicle']);
@@ -64,6 +66,23 @@ export function editorPlugin({ root, overridesPath = join(root, 'public/data/app
   return {
     name: 'cdda-model-studio',
     configureServer(server) {
+      const voxelRoot = join(root, 'vendor/voxel');
+      server.middlewares.use('/api/voxel/sets', (req, res) => {
+        if (req.method !== 'GET') return send(res, 405, { error: 'method not allowed' });
+        const sets = existsSync(voxelRoot) ? readdirSync(voxelRoot, { withFileTypes: true }).filter((d) => d.isDirectory() && existsSync(join(voxelRoot, d.name, 'voxelset.json'))).map((d) => d.name).sort() : [];
+        send(res, 200, sets);
+      });
+      server.middlewares.use('/voxel', async (req, res) => {
+        // Only files inside vendor/voxel/<set>/.
+        const rel = normalize(decodeURIComponent((req.url ?? '').split('?')[0])).replace(/^[/\\]+/, '');
+        const file = join(voxelRoot, rel);
+        if (req.method !== 'GET' || !file.startsWith(voxelRoot + sep) || rel.split(/[/\\]/).includes('..') || !existsSync(file) || !statSync(file).isFile()) return send(res, 404, { error: 'not found' });
+        const type = file.endsWith('.json') ? 'application/json; charset=utf-8' : 'application/octet-stream';
+        res.statusCode = 200;
+        res.setHeader('Content-Type', type);
+        res.setHeader('Cache-Control', 'no-store');
+        res.end(await readFile(file));
+      });
       server.middlewares.use('/api/editor/overrides', async (req, res) => {
         try {
           if (req.method === 'GET') {

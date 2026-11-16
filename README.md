@@ -24,6 +24,25 @@ npm run dev
 
 Local edits are saved to `public/data/appearance.local.json`, which is not committed.
 
+## Voxel sets
+
+A voxel set is a folder holding `voxelset.json` and `.vox` files: the format of
+[cataclysm-3d](https://github.com/Risaro/cataclysm-3d) (see its `doc/VOXEL_TILESETS.md`).
+
+- Sets are asset files, not part of this repository. The dev server shows every set found under
+  `vendor/voxel/<set>/` as the **Voxel models** kind.
+- `node tools/fetch-voxel-starter.mjs` downloads cataclysm-3d's starter set there.
+- Previews follow cataclysm-3d's conventions:
+  - 8 voxels per tile; a z-level is 16 voxels high and a person is about 13.
+  - The model stands on the ground and is centered on its tile.
+  - MagicaVoxel +y faces north.
+  - Glass colors are translucent.
+- With a set loaded, the reference wall is 2 tiles high and the reference person 1.625. Add
+  `?world=compact` to the URL for the old proportions.
+
+How CDDA objects map to built-in model types is still open. See
+`docs/builtin-classification.md`.
+
 ## Languages
 
 The interface is available in Chinese, English and Russian. The picker is in the top right. The

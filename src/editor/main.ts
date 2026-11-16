@@ -7,12 +7,13 @@ import './editor.css';
 import { Appearance, LOCAL_OVERRIDES, LOCAL_PACKS, type AppearanceDoc } from '../render/appearance';
 import { ModelLibrary, type ClipRole } from '../render/models';
 import { TextureLibrary } from '../render/textures';
-import { useMetricWorld, WORLD } from '../render/world-scale';
+import { useMetricWorld, useVoxelWorld, WORLD } from '../render/world-scale';
+import { builtinGroup, entryLabel, libraryItems, loadVoxelSets } from '../vox/library';
 import { applyNames, EMPTY_CATALOG, type CatalogIndex, type CatalogNames, isEditable, STATUS_LABEL, search, statusOf, type CatalogEntry, type CatalogKind, type EditorCatalog, type Status } from './catalog';
 import { esc, measureHtml, readForm, renderInspector } from './inspector';
 import { editedObjects, emptyDoc, readEdit, removeEdit, writeEdit, type Edit, type EditKind, type OverrideDoc } from './overrides';
 import { Stage, type Measure, type View } from './stage';
-import { buildModelSubject, buildSubject, type Subject } from './subject';
+import { buildModelSubject, buildSubject, buildVoxSubject, type Subject } from './subject';
 import { ThumbnailCache } from './thumbs';
 import { branchOf, buildTree, inBranch, KIND_NAME, KINDS, pathOf, trail, type Kind, type TreeNode } from './tree';
 import { lang, LANGS, setLang, t, type Lang } from './i18n';
@@ -46,7 +47,13 @@ function makeAppearance(doc: OverrideDoc): Appearance {
 }
 
 let appearance = makeAppearance(saved);
-useMetricWorld(new URLSearchParams(location.search).get('world') === 'metric');
+// Voxel sets (dev server: vendor/voxel/*). With any, sizes follow cataclysm-3d's voxel world
+// unless ?world= says otherwise (metric / compact).
+const voxelSets = await loadVoxelSets();
+const worldParam = new URLSearchParams(location.search).get('world');
+if (worldParam === 'voxel' || (!worldParam && voxelSets.length)) useVoxelWorld(voxelSets[0]?.set.voxels_per_tile ?? 8);
+else useMetricWorld(worldParam === 'metric');
+const voxItems = new Map(libraryItems(voxelSets).map((i) => [i.key, i]));
 const textures = new TextureLibrary(appearance.textures);
 const models = new ModelLibrary(appearance);
 // The CDDA object catalog: pre-built per CDDA version (tools/editor/catalog.mjs --write).
@@ -118,7 +125,11 @@ function modelEntries(): CatalogEntry[] {
 }
 
 const models0 = modelEntries();
-const entriesOf = (t: Tab): CatalogEntry[] => (t === 'model' ? models0 : catalog[t]);
+const vox0: CatalogEntry[] = [...voxItems.values()].map((i) => ({
+  id: i.key, name: i.file.replace(/^.*\//, '').replace(/\.vox$/i, ''), en: i.entries.map(entryLabel).join(' · '), sym: '▣', color: 'light_gray', flags: [],
+  cat: builtinGroup(i.entries[0]?.builtin), voxSet: i.set.id, voxSetName: i.set.set.name,
+}));
+const entriesOf = (t: Tab): CatalogEntry[] => (t === 'model' ? models0 : t === 'vox' ? vox0 : catalog[t]);
 
 // ── Object tree: every kind split into branches ─────────────────────────────────────────
 const branchSegs = (kind: Tab, e: CatalogEntry) => branchOf(kind, e, catalog.labels, kind === 'model' ? appearance.model(e.id) : undefined);
@@ -144,6 +155,8 @@ function status(t: Tab, e: CatalogEntry): Status {
     if (t === 'model') {
       const m = appearance.model(e.id);
       s = m?.fallback ? 'fallback' : 'base';
+    } else if (t === 'vox') {
+      s = 'base';
     } else {
       s = statusOf(t as CatalogKind, e, appearance);
     }
@@ -252,7 +265,7 @@ const thumbObserver = new IntersectionObserver((records) => {
     }
     const entry = entriesOf(kind).find((x) => x.id === id);
     if (!entry) continue;
-    void thumbs.request(key, () => (kind === 'model' ? buildModelSubject(ctx, id) : buildSubject(ctx, kind as CatalogKind, entry, 0))).then((url) => {
+    void thumbs.request(key, () => (kind === 'model' ? buildModelSubject(ctx, id) : kind === 'vox' ? buildVoxSubject(voxItems.get(id)!) : buildSubject(ctx, kind as CatalogKind, entry, 0))).then((url) => {
       const cell = r.target as HTMLElement;
       thumbObserver.unobserve(cell);
       cell.classList.remove('wait');
@@ -319,7 +332,7 @@ async function show(keepForm = false): Promise<void> {
     return;
   }
   $('#ed-loading').hidden = false;
-  const built = sel.kind === 'model' ? await buildModelSubject(ctx, sel.id) : await buildSubject(ctx, sel.kind as CatalogKind, entry, variant);
+  const built = sel.kind === 'model' ? await buildModelSubject(ctx, sel.id) : sel.kind === 'vox' ? await buildVoxSubject(voxItems.get(sel.id)!) : await buildSubject(ctx, sel.kind as CatalogKind, entry, variant);
   if (token !== loadToken) return;
   $('#ed-loading').hidden = true;
   subject = built;

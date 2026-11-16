@@ -24,11 +24,11 @@ const VIA_LABEL: Record<Explanation['via'], string> = {
   none: t('无匹配'),
 };
 
-function identity(kind: CatalogKind | 'model', e: CatalogEntry, branch: string): string {
+function identity(kind: CatalogKind | 'model' | 'vox', e: CatalogEntry, branch: string): string {
   const rows: [string, string][] = [['id', `<span class="mono">${esc(e.id)}</span>`]];
-  if (kind !== 'model') rows.push([t('类别'), KIND_LABEL[kind]]);
+  if (kind !== 'model' && kind !== 'vox') rows.push([t('类别'), KIND_LABEL[kind]]);
   if (branch) rows.push([t('分支'), esc(branch)]);
-  if (e.cat) rows.push([kind === 'vpart' ? t('部件分类') : t('物品分类'), `<span class="mono">${esc(e.cat)}</span>`]);
+  if (e.cat && kind !== 'vox') rows.push([kind === 'vpart' ? t('部件分类') : t('物品分类'), `<span class="mono">${esc(e.cat)}</span>`]);
   if (e.location) rows.push([t('安装位置'), `<span class="mono">${esc(e.location)}</span>`]);
   if (e.covers?.length) rows.push([t('覆盖部位'), esc(e.covers.join(', '))]);
   if (e.species?.length) rows.push([t('物种'), esc(e.species.join(', '))]);
@@ -43,7 +43,7 @@ function identity(kind: CatalogKind | 'model', e: CatalogEntry, branch: string):
   if (e.variants?.length) rows.push([t('变体'), esc(e.variants.map((v) => v.name).join(listSep()))]);
   if (e.file) rows.push([t('定义文件'), `<span class="mono">data/json/${esc(e.file)}</span>`]);
   if (e.looksLike) rows.push(['looks_like', `<span class="mono">${esc(e.looksLike)}</span>`]);
-  if (e.color && kind !== 'model') rows.push([t('颜色'), `<span class="mono">${esc(e.color)}</span>`]);
+  if (e.color && kind !== 'model' && kind !== 'vox') rows.push([t('颜色'), `<span class="mono">${esc(e.color)}</span>`]);
   const flags = e.flags?.length ? `<details><summary>${t('标志 {n} 个', { n: e.flags.length })}</summary><div class="chips">${e.flags.map((f) => `<span class="chip">${esc(f)}</span>`).join('')}</div></details>` : '';
   return `<section class="ed-sec"><div class="ed-name">${esc(e.name)}${e.unofficialName ? ` <span class="ed-badge" title="${t('非官方译名')}">*</span>` : ''}</div>${e.en !== e.name ? `<div class="ed-en">${esc(e.en)}</div>` : ''}
     <dl class="ed-kv" style="margin-top:6px">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>${flags}</section>`;
@@ -95,7 +95,7 @@ function editForm(edit: Edit, hasSaved: boolean, dirty: boolean): string {
 }
 
 export interface InspectorModel {
-  kind: CatalogKind | 'model';
+  kind: CatalogKind | 'model' | 'vox';
   /** Where it sits in the object tree ("物品 › 服装 › 躯干"). */
   branch: string;
   entry: CatalogEntry;
@@ -124,7 +124,7 @@ export function renderInspector(host: HTMLElement, appearance: Appearance, m: In
   const uses = m.uses
     ? `<section class="ed-sec"><h3>${t('使用这个模型的对象（{n}）', { n: m.uses.length })}</h3><ul class="ed-uses">${m.uses.slice(0, 300).map((u) => `<li><a data-kind="${u.kind}" data-id="${esc(u.id)}">${KIND_LABEL[u.kind]} · ${esc(u.name)}</a> <span class="mono" style="color:var(--muted)">${esc(u.id)}</span></li>`).join('')}</ul></section>`
     : '';
-  const readOnly = !m.edit && m.kind !== 'model'
+  const readOnly = !m.edit && m.kind !== 'model' && m.kind !== 'vox'
     ? `<section class="ed-sec"><h3>${t('编辑')}</h3><p class="ed-hint">${t('游戏不为这一类对象查找模型（见上方说明），这里只能查看。需要给它换模型时，要先让游戏支持这一类。')}</p></section>`
     : '';
   host.innerHTML = `<div id="ins-info">${info}</div><div id="ins-edit">${m.edit ? editForm(m.edit, m.hasSaved, m.dirty) : readOnly}</div>${uses}`;

@@ -15,6 +15,11 @@ export function useMetricWorld(metric: boolean): void {
   Object.assign(WORLD, metric ? { wallHeight: 2.45, personHeight: 1.8 } : DEFAULT);
 }
 
+/** cataclysm-3d's voxel proportions: a z-level is 2 × voxels_per_tile voxels, a person 13 voxels. */
+export function useVoxelWorld(voxelsPerTile = 8): void {
+  Object.assign(WORLD, { wallHeight: 2, personHeight: 13 / voxelsPerTile });
+}
+
 /** Scale for models made for the default world (people 0.95 tall) shown in the current one. */
 export function legacyCreatureScale(): number {
   return WORLD.personHeight / DEFAULT.personHeight;

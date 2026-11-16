@@ -6,7 +6,7 @@ import type { CatalogFeature } from '../shared/protocol';
 import type { CatalogEntry, CatalogKind, CatalogLabels } from './catalog';
 import { t } from './i18n';
 
-export type Kind = CatalogKind | 'model';
+export type Kind = CatalogKind | 'model' | 'vox';
 
 /** Top-level order and names. */
 export const KINDS: [Kind, string][] = [
@@ -19,6 +19,7 @@ export const KINDS: [Kind, string][] = [
   ['field', t('场地效果')],
   ['trap', t('陷阱')],
   ['model', t('模型库')],
+  ['vox', t('体素模型')],
 ];
 export const KIND_NAME = Object.fromEntries(KINDS) as Record<Kind, string>;
 
@@ -127,6 +128,11 @@ const TRAP: [string, string, (e: CatalogEntry) => boolean][] = [
   ['funnel', t('收集器'), (e) => /funnel|cistern|catch/.test(e.id)],
 ];
 
+// ── Voxel models: by set, then by built-in model group (src/vox/library.ts BUILTIN_GROUPS) ──
+const VOX_GROUP: Record<string, string> = {
+  terrain: t('地形'), nature: t('自然地物'), furniture: t('家具'), creature: t('生物'), item: t('物品'), vehicle: t('载具'), effect: t('效果与标记'), object: t('按 id 绑定'), other: t('其他'),
+};
+
 // ── Model library: by source ────────────────────────────────────────────────────────────
 export interface ModelInfo { url: string; fallback?: boolean }
 function model(e: CatalogEntry, info: ModelInfo | undefined): Seg[] {
@@ -146,6 +152,7 @@ export function branchOf(kind: Kind, e: CatalogEntry, labels: CatalogLabels, inf
     case 'field': return [first(FIELD, e)];
     case 'trap': return [first(TRAP, e, ['trap', t('陷阱')])];
     case 'model': return model(e, info);
+    case 'vox': return [[e.voxSet ?? 'set', e.voxSetName ?? e.voxSet ?? ''], [e.cat ?? 'object', VOX_GROUP[e.cat ?? 'object'] ?? e.cat ?? '']];
   }
 }
 
