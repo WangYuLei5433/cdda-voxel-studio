@@ -8,13 +8,14 @@ import { Appearance, LOCAL_OVERRIDES, LOCAL_PACKS, type AppearanceDoc } from '..
 import { ModelLibrary, type ClipRole } from '../render/models';
 import { TextureLibrary } from '../render/textures';
 import { useMetricWorld, WORLD } from '../render/world-scale';
-import { EMPTY_CATALOG, type CatalogIndex, isEditable, STATUS_LABEL, search, statusOf, type CatalogEntry, type CatalogKind, type EditorCatalog, type Status } from './catalog';
+import { applyNames, EMPTY_CATALOG, type CatalogIndex, type CatalogNames, isEditable, STATUS_LABEL, search, statusOf, type CatalogEntry, type CatalogKind, type EditorCatalog, type Status } from './catalog';
 import { esc, measureHtml, readForm, renderInspector } from './inspector';
 import { editedObjects, emptyDoc, readEdit, removeEdit, writeEdit, type Edit, type EditKind, type OverrideDoc } from './overrides';
 import { Stage, type Measure, type View } from './stage';
 import { buildModelSubject, buildSubject, type Subject } from './subject';
 import { ThumbnailCache } from './thumbs';
 import { branchOf, buildTree, inBranch, KIND_NAME, KINDS, pathOf, trail, type Kind, type TreeNode } from './tree';
+import { lang, LANGS, setLang, t, type Lang } from './i18n';
 
 type Tab = Kind;
 const FILTERS: (Status | 'all')[] = ['all', 'fallback', 'base', 'texture', 'procedural', 'none', 'hidden', 'override'];
@@ -52,12 +53,25 @@ const models = new ModelLibrary(appearance);
 const catalogIndex = await fetchJson<CatalogIndex>('/data/cdda/index.json');
 const catalogVersion = catalogIndex?.versions.find((v) => v.id === new URLSearchParams(location.search).get('cdda')) ?? catalogIndex?.versions[0];
 const catalog: EditorCatalog = { ...EMPTY_CATALOG, ...((catalogVersion && (await fetchJson<EditorCatalog>(`/data/cdda/${catalogVersion.path}`))) ?? {}) };
+// Object names in the interface language (English needs no file).
+const namesPath = lang === 'en' ? undefined : catalogVersion?.langs?.[lang]?.path;
+applyNames(catalog, namesPath ? await fetchJson<CatalogNames>(`/data/cdda/${namesPath}`) : null);
+
+// Static texts, the language picker and the page language.
+document.documentElement.lang = lang === 'zh_CN' ? 'zh' : lang;
+for (const el of document.querySelectorAll<HTMLElement>('[data-i18n]')) el.textContent = t(el.dataset.i18n!);
+for (const el of document.querySelectorAll<HTMLElement>('[data-i18n-title]')) el.title = t(el.dataset.i18nTitle!);
+for (const el of document.querySelectorAll<HTMLInputElement>('[data-i18n-placeholder]')) el.placeholder = t(el.dataset.i18nPlaceholder!);
+document.title = t('CDDA 模型工作室');
+const langSelect = $<HTMLSelectElement>('#ed-lang');
+langSelect.innerHTML = LANGS.map(([l, label]) => `<option value="${l}" ${l === lang ? 'selected' : ''}>${label}</option>`).join('');
+langSelect.addEventListener('change', () => setLang(langSelect.value as Lang));
 const ctx = { get appearance() { return appearance; }, models, textures };
 const stage = new Stage($<HTMLCanvasElement>('#ed-canvas'), appearance, models, textures);
 
-$('#ed-world').textContent = `墙高 ${WORLD.wallHeight} 格 · 人高 ${WORLD.personHeight} 格`;
-$('#ed-pack').textContent = `基础素材 · ${appearance.modelCount} 个模型`;
-$('#ed-cdda').textContent = catalogVersion ? `CDDA ${catalogVersion.cdda}` : '未找到 CDDA 对象表';
+$('#ed-world').textContent = t('墙高 {wall} 格 · 人高 {person} 格', { wall: WORLD.wallHeight, person: WORLD.personHeight });
+$('#ed-pack').textContent = t('基础素材 · {n} 个模型', { n: appearance.modelCount });
+$('#ed-cdda').textContent = catalogVersion ? `CDDA ${catalogVersion.cdda}` : t('未找到 CDDA 对象表');
 
 // ── State ───────────────────────────────────────────────────────────────────────────────
 const params = new URLSearchParams(location.search);
@@ -76,7 +90,7 @@ const statusCache = new Map<string, Status>();
 // List or thumbnail grid, and the grid's cell size: remembered in this browser.
 type Layout = 'list' | 'grid';
 type CellSize = 's' | 'm' | 'l';
-const CELL_SIZES: [CellSize, string][] = [['s', '小'], ['m', '中'], ['l', '大']];
+const CELL_SIZES: [CellSize, string][] = [['s', t('小')], ['m', t('中')], ['l', t('大')]];
 function stored<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
   try {
     const v = localStorage.getItem(key) as T | null;
@@ -120,7 +134,7 @@ function objectPath(kind: Tab, e: CatalogEntry): string {
 const validBranch = (b: string | null) => b !== null && (b === ALL || trail(tree, b).at(-1)?.path === b);
 let branch: string = validBranch(params.get('branch')) ? params.get('branch')! : urlKind ?? 'furn';
 const kindOf = (path: string) => path.split('/')[0] as Tab;
-const branchLabel = (path: string) => (path === ALL ? '全部对象' : trail(tree, path).map((n) => n.label).join(' › '));
+const branchLabel = (path: string) => (path === ALL ? t('全部对象') : trail(tree, path).map((n) => n.label).join(' › '));
 const expanded = new Set<string>();
 
 function status(t: Tab, e: CatalogEntry): Status {
@@ -144,7 +158,7 @@ const total = tree.reduce((n, r) => n + r.count, 0);
 function treeHtml(nodes: TreeNode[], depth: number): string {
   return `<ul role="group">${nodes.map((n) => {
     const open = expanded.has(n.path);
-    const caret = n.children.length ? `<button type="button" class="caret" data-expand="${esc(n.path)}" aria-label="${open ? '折叠' : '展开'}">${open ? '▾' : '▸'}</button>` : '<span class="caret"></span>';
+    const caret = n.children.length ? `<button type="button" class="caret" data-expand="${esc(n.path)}" aria-label="${open ? t('折叠') : t('展开')}">${open ? '▾' : '▸'}</button>` : '<span class="caret"></span>';
     return `<li role="treeitem" aria-expanded="${n.children.length ? open : ''}"><div class="node${n.path === branch ? ' on' : ''}" style="padding-left:${depth * 14}px">${caret}<button type="button" class="pick" data-path="${esc(n.path)}">${esc(n.label)}</button><span class="n">${n.count}</span></div>${open && n.children.length ? treeHtml(n.children, depth + 1) : ''}</li>`;
   }).join('')}</ul>`;
 }
@@ -157,7 +171,7 @@ function revealBranch(): void {
 function renderTree(): void {
   const count = branch === ALL ? total : trail(tree, branch).at(-1)?.count ?? 0;
   $('#ed-branch').innerHTML = `<span class="label">${esc(branchLabel(branch))}</span><span class="n">${count}</span><span class="arrow">${$('#ed-tree').hidden ? '▾' : '▴'}</span>`;
-  $('#ed-tree').innerHTML = `<div class="node${branch === ALL ? ' on' : ''}"><span class="caret"></span><button type="button" class="pick" data-path="">全部对象</button><span class="n">${total}</span></div>${treeHtml(tree, 0)}`;
+  $('#ed-tree').innerHTML = `<div class="node${branch === ALL ? ' on' : ''}"><span class="caret"></span><button type="button" class="pick" data-path="">${t('全部对象')}</button><span class="n">${total}</span></div>${treeHtml(tree, 0)}`;
 }
 
 function setBranch(path: string): void {
@@ -193,10 +207,10 @@ function renderList(): void {
   const counts = new Map<Status | 'all', number>([['all', found.length]]);
   for (const { kind, e } of found) counts.set(status(kind, e), (counts.get(status(kind, e)) ?? 0) + 1);
   $('#ed-filters').innerHTML = FILTERS.filter((f) => f === 'all' || counts.get(f))
-    .map((f) => `<button type="button" data-filter="${f}" class="${f === filter ? 'on' : ''}">${f === 'all' ? '全部' : `<span class="dot st-${f}"></span> ${STATUS_LABEL[f]}`}<span class="n">${counts.get(f) ?? 0}</span></button>`)
+    .map((f) => `<button type="button" data-filter="${f}" class="${f === filter ? 'on' : ''}">${f === 'all' ? t('全部') : `<span class="dot st-${f}"></span> ${STATUS_LABEL[f]}`}<span class="n">${counts.get(f) ?? 0}</span></button>`)
     .join('');
   const shown = filter === 'all' ? found : found.filter(({ kind, e }) => status(kind, e) === filter);
-  $('#ed-count').textContent = `${branchLabel(branch)} ${all.length} 项 · 匹配 ${shown.length} 项`;
+  $('#ed-count').textContent = `${branchLabel(branch)} ${t('{n} 项 · 匹配 {m} 项', { n: all.length, m: shown.length })}`;
   const edited = editedObjects(draft);
   const mixed = branch === ALL;
   const grid = layout === 'grid';
@@ -214,14 +228,14 @@ function renderList(): void {
         return `<li role="option" data-kind="${kind}" data-id="${esc(e.id)}" aria-selected="${sel}" title="${esc(`${e.name} · ${e.id}\n${mixed ? `${KIND_NAME[kind]} · ` : ''}${STATUS_LABEL[st]}`)}"><span class="th${url === undefined ? ' wait' : ''}">${pic}</span><span class="nm">${esc(e.name)}${mark}</span><span class="dot st-${st}"></span></li>`;
       }
       return `<li role="option" data-kind="${kind}" data-id="${esc(e.id)}" aria-selected="${sel}" title="${esc(STATUS_LABEL[st])}">${sym}<span class="names"><b>${esc(e.name)}${mark}</b><small>${mixed ? `${KIND_NAME[kind]} · ` : ''}${esc(e.id)}</small></span><span class="dot st-${st}"></span></li>`;
-    }).join('') + (shown.length > LIST_LIMIT ? `<li class="more">还有 ${shown.length - LIST_LIMIT} 项，请缩小搜索或选更细的分支</li>` : '');
+    }).join('') + (shown.length > LIST_LIMIT ? `<li class="more">${t('还有 {n} 项，请缩小搜索或选更细的分支', { n: shown.length - LIST_LIMIT })}</li>` : '');
   renderLayout();
   if (grid) observeThumbs();
 }
 
 function renderLayout(): void {
   const grid = layout === 'grid';
-  $('#ed-layout').innerHTML = `<button type="button" data-layout="list" class="${grid ? '' : 'on'}" title="列表">☰</button><button type="button" data-layout="grid" class="${grid ? 'on' : ''}" title="缩略图网格">▦</button>${grid ? `<span class="sep"></span>${CELL_SIZES.map(([s, l]) => `<button type="button" data-cell="${s}" class="${s === cellSize ? 'on' : ''}" title="格子大小">${l}</button>`).join('')}` : ''}`;
+  $('#ed-layout').innerHTML = `<button type="button" data-layout="list" class="${grid ? '' : 'on'}" title="${t('列表')}">☰</button><button type="button" data-layout="grid" class="${grid ? 'on' : ''}" title="${t('缩略图网格')}">▦</button>${grid ? `<span class="sep"></span>${CELL_SIZES.map(([s, l]) => `<button type="button" data-cell="${s}" class="${s === cellSize ? 'on' : ''}" title="${t('格子大小')}">${l}</button>`).join('')}` : ''}`;
 }
 
 // Grid thumbnails: rendered when a cell scrolls into view, dropped from the queue when it leaves.
@@ -300,7 +314,7 @@ async function show(keepForm = false): Promise<void> {
   const token = ++loadToken;
   if (!sel || !entry) {
     stage.clear();
-    $('#ed-inspector').innerHTML = '<p class="ed-empty">从左侧选择一个对象。</p>';
+    $('#ed-inspector').innerHTML = `<p class="ed-empty">${t('从左侧选择一个对象。')}</p>`;
     $('#ed-measure').innerHTML = '';
     return;
   }
@@ -351,21 +365,21 @@ function select(kind: Tab, id: string): void {
 }
 
 // ── Toolbar ─────────────────────────────────────────────────────────────────────────────
-const VIEWS: [View, string][] = [['iso', '斜视'], ['front', '正面'], ['side', '侧面'], ['top', '俯视']];
-const TOGGLES: [keyof Stage['options'], string][] = [['grid', '网格'], ['wall', '参照墙'], ['person', '参照人'], ['bbox', '包围盒'], ['wireframe', '线框']];
-const ANIMS: [ClipRole, string][] = [['idle', '待机'], ['walk', '行走'], ['attack', '攻击'], ['hit', '受击'], ['die', '死亡']];
+const VIEWS: [View, string][] = [['iso', t('斜视')], ['front', t('正面')], ['side', t('侧面')], ['top', t('俯视')]];
+const TOGGLES: [keyof Stage['options'], string][] = [['grid', t('网格')], ['wall', t('参照墙')], ['person', t('参照人')], ['bbox', t('包围盒')], ['wireframe', t('线框')]];
+const ANIMS: [ClipRole, string][] = [['idle', t('待机')], ['walk', t('行走')], ['attack', t('攻击')], ['hit', t('受击')], ['die', t('死亡')]];
 
 function renderToolbar(): void {
-  $('#ed-views').innerHTML = `<label>视角</label>${VIEWS.map(([v, l]) => `<button type="button" data-view="${v}" class="${v === view ? 'on' : ''}">${l}</button>`).join('')}`;
+  $('#ed-views').innerHTML = `<label>${t('视角')}</label>${VIEWS.map(([v, l]) => `<button type="button" data-view="${v}" class="${v === view ? 'on' : ''}">${l}</button>`).join('')}`;
   $('#ed-toggles').innerHTML = TOGGLES.map(([k, l]) => `<button type="button" data-toggle="${k}" class="${stage.options[k] ? 'on' : ''}">${l}</button>`).join('');
   const variants = subject?.variants.length ?? 0;
   const monster = selected?.kind === 'monster';
   const vbox = $('#ed-variants');
   vbox.hidden = !(variants > 1);
-  vbox.innerHTML = `<label>变体</label><button type="button" data-variant="-1">‹</button><span class="mono" style="padding:0 4px">${monster ? `#${variant}` : `${(variant % Math.max(1, variants)) + 1}/${variants}`}</span><button type="button" data-variant="1">›</button>`;
+  vbox.innerHTML = `<label>${t('变体')}</label><button type="button" data-variant="-1">‹</button><span class="mono" style="padding:0 4px">${monster ? `#${variant}` : `${(variant % Math.max(1, variants)) + 1}/${variants}`}</span><button type="button" data-variant="1">›</button>`;
   const abox = $('#ed-anims');
   abox.hidden = !subject?.actor;
-  abox.innerHTML = `<label>动画</label>${ANIMS.map(([r, l]) => `<button type="button" data-anim="${r}">${l}</button>`).join('')}`;
+  abox.innerHTML = `<label>${t('动画')}</label>${ANIMS.map(([r, l]) => `<button type="button" data-anim="${r}">${l}</button>`).join('')}`;
 }
 
 // ── Editing ─────────────────────────────────────────────────────────────────────────────
@@ -386,7 +400,7 @@ function preview(): Promise<void> {
   const kind = selected.kind;
   const edit = readForm($('#ed-inspector'));
   if (!edit.model || !appearance.model(edit.model)) {
-    $('#ed-saved').textContent = edit.model ? `没有模型键 ${edit.model}` : '请选择模型';
+    $('#ed-saved').textContent = edit.model ? t('没有模型键 {key}', { key: edit.model }) : t('请选择模型');
     $('#ed-saved').className = 'ed-saved error';
     return Promise.resolve();
   }
@@ -395,14 +409,14 @@ function preview(): Promise<void> {
 
 async function save(): Promise<void> {
   if (!apiAvailable) {
-    $('#ed-saved').textContent = '保存需要开发服务器（npm run dev）';
+    $('#ed-saved').textContent = t('保存需要开发服务器（npm run dev）');
     $('#ed-saved').className = 'ed-saved error';
     return;
   }
   const res = await fetch('/api/editor/overrides', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(draft) });
   const body = (await res.json()) as OverrideDoc & { error?: string };
   if (!res.ok) {
-    $('#ed-saved').textContent = `保存失败：${body.error}`;
+    $('#ed-saved').textContent = t('保存失败：{error}', { error: body.error ?? '' });
     $('#ed-saved').className = 'ed-saved error';
     return;
   }
@@ -413,7 +427,7 @@ async function save(): Promise<void> {
 function updateSavedBadge(): void {
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
   const n = editedObjects(saved).size;
-  $('#ed-saved').textContent = dirty ? '有未保存的修改' : `本地覆盖 ${n} 项${apiAvailable ? '' : '（只读）'}`;
+  $('#ed-saved').textContent = dirty ? t('有未保存的修改') : t('本地覆盖 {n} 项', { n }) + (apiAvailable ? '' : t('（只读）'));
   $('#ed-saved').className = `ed-saved${dirty ? ' dirty' : ''}`;
 }
 

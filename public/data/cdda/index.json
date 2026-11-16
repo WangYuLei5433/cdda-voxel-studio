@@ -6,7 +6,6 @@
       "cdda": "experimental-2026-11-14",
       "commit": "7136388ca55f1917de99c74a31ff5955d719a50d",
       "translations": "cdda-experimental-2026-11-14-0749",
-      "lang": "zh_CN",
       "generated": "2026-11-16",
       "counts": {
         "ter": 1271,
@@ -18,7 +17,21 @@
         "field": 172,
         "trap": 150
       },
-      "license": "Derived from Cataclysm: Dark Days Ahead data (https://github.com/CleverRaven/Cataclysm-DDA), CC BY-SA 3.0."
+      "langs": {
+        "ru": {
+          "path": "experimental-2026-11-14/names.ru.json",
+          "translated": 14308,
+          "generated": 0,
+          "total": 14518
+        },
+        "zh_CN": {
+          "path": "experimental-2026-11-14/names.zh_CN.json",
+          "translated": 14462,
+          "generated": 283,
+          "total": 14518
+        }
+      },
+      "license": "Derived from Cataclysm: Dark Days Ahead data and translations (https://github.com/CleverRaven/Cataclysm-DDA), CC BY-SA 3.0."
     }
   ]
 }

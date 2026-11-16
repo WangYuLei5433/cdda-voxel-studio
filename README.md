@@ -24,29 +24,44 @@ npm run dev
 
 Local edits are saved to `public/data/appearance.local.json`, which is not committed.
 
+## Languages
+
+The interface is available in Chinese, English and Russian. The picker is in the top right. The
+default follows the browser's language, and `?lang=zh_CN|en|ru` in the URL picks one directly.
+Interface strings are in `src/editor/i18n.ts`.
+
 ## CDDA object catalog
 
-The object list is a generated file, stored per CDDA version:
-`public/data/cdda/<version>/catalog.json`. `public/data/cdda/index.json` lists the versions,
-newest first; `?cdda=<version>` in the URL picks another one.
+The object list is a generated file, stored per CDDA version under `public/data/cdda/<version>/`:
+
+- `catalog.json`: every object, with its English name and its gettext context.
+- `names.zh_CN.json`, `names.ru.json`: object names from CDDA's official translations.
+  - **Chinese:** names missing from the official translation are filled in by this project from
+    `tools/editor/names/zh_CN.json`. They are flagged as unofficial (`*` in the inspector), and an
+    official name replaces them once one exists.
+  - **Russian:** missing names fall back to English.
+
+`public/data/cdda/index.json` lists the versions, newest first. `?cdda=<version>` picks one.
 
 - **Coverage:** the core content (`data/json`, the `dda` mod). The only other mods enabled by
-  default, `no_npc_food` and `personal_portal_storms`, add no visible objects. The catalog
-  covers every terrain, furniture, item, monster, vehicle, vehicle part, field and trap id there.
-- **Fields:** each object has its English name and its translated name (with the gettext context).
-  Each object records its source file and has `copy-from` resolved
-  (`relative`, `proportional`, `extend`, `delete`).
-  - Items also carry volume, weight, longest side, types and variants.
-  - Monsters also carry volume, weight and body type.
-- **License:** the catalog is derived from CDDA data, so it is CC BY-SA 3.0.
+  default, `no_npc_food` and `personal_portal_storms`, add no visible objects. The catalog covers
+  every terrain, furniture, item, monster, vehicle, vehicle part, field and trap id there.
+- **Fields:** for every object, the source file and the resolved `copy-from` (`relative`,
+  `proportional`, `extend`, `delete`).
+  - Items: volume, weight, longest side, types and variants.
+  - Monsters: volume, weight and body type.
+- **License:** derived from CDDA data and translations, so CC BY-SA 3.0.
 
-To generate the catalog for another CDDA version, point `CDDA_DIR` at a checkout or install that
-has `data/json` and `lang/mo`. `CDDA_LANG` picks the language; the default is `zh_CN`.
+To generate the catalog for a CDDA version:
 
 ```sh
+node tools/fetch-translations.mjs cdda-experimental-2026-11-14-0749   # official zh_CN + ru .po
 CDDA_DIR=/path/to/Cataclysm-DDA npm run catalog -- --write --version experimental-2026-11-14 \
-  --commit <sha> --translations <release tag>
+  --translations cdda-experimental-2026-11-14-0749 --commit <sha>
+npm run catalog -- --missing zh_CN --translations <tag>   # names the official translation lacks
 ```
+
+`CDDA_DIR` is a CDDA checkout or install with `data/json`. The default is `vendor/cdda`.
 
 ## Develop
 

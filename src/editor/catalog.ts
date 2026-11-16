@@ -3,6 +3,7 @@
 import type { Appearance, Describable } from '../render/appearance';
 import { planMonster, type MonsterPlan } from '../render/creature-plan';
 import type { EditKind } from './overrides';
+import { t } from './i18n';
 
 export interface CatalogEntry extends Describable {
   /** Display name (Chinese when translated). */
@@ -29,6 +30,8 @@ export interface CatalogEntry extends Describable {
   phase?: string;
   /** Traps: never visible (script triggers). */
   hidden?: boolean;
+  /** The display name is the studio's own translation (the official one has none). */
+  unofficialName?: boolean;
   /** Translation context of the name, when it has one. */
   ctxt?: string;
   /** Source file under data/json. */
@@ -63,12 +66,45 @@ export type EditorCatalog = Record<CatalogKind, CatalogEntry[]> & { labels: Cata
 
 /** public/data/cdda/index.json: the generated catalogs, newest first. */
 export interface CatalogIndex {
-  versions: { id: string; path: string; cdda: string; commit?: string; translations?: string; lang: string; generated: string; counts: Record<string, number> }[];
+  versions: {
+    id: string; path: string; cdda: string; commit?: string; translations?: string; generated: string; counts: Record<string, number>;
+    /** Name files per CDDA language (zh_CN, ru…). */
+    langs?: Record<string, { path: string; translated: number; generated: number; total: number }>;
+  }[];
+}
+
+/** names.<lang>.json: translated names by kind and id; `generated` lists the studio-made ones. */
+export interface CatalogNames {
+  lang: string;
+  kinds: Record<string, Record<string, string>>;
+  variant: Record<string, string>;
+  labels: Record<string, Record<string, string>>;
+  generated: Record<string, string[]>;
+}
+
+/**
+ * Give every entry its display name in one language (`names`, or English when null): the
+ * translation when there is one, else the English name. Studio-made names are flagged.
+ */
+export function applyNames(catalog: EditorCatalog, names: CatalogNames | null): void {
+  for (const kind of Object.keys(EMPTY_CATALOG).filter((k) => k !== 'labels') as CatalogKind[]) {
+    const table = names?.kinds[kind] ?? {};
+    const made = new Set(names?.generated[kind] ?? []);
+    for (const e of catalog[kind]) {
+      e.name = table[e.id] ?? e.en;
+      if (made.has(e.id)) e.unofficialName = true;
+      for (const v of e.variants ?? []) v.name = names?.variant[v.id] ?? v.en;
+    }
+  }
+  for (const group of ['itemCat', 'vpartCat'] as const) {
+    const table = names?.labels[group] ?? {};
+    for (const id of Object.keys(catalog.labels[group])) catalog.labels[group][id] = table[id] ?? catalog.labels[group][id];
+  }
 }
 
 export const EMPTY_CATALOG: EditorCatalog = { ter: [], furn: [], item: [], monster: [], vehicle: [], vpart: [], field: [], trap: [], labels: { itemCat: {}, vpartCat: {} } };
 
-export const KIND_LABEL: Record<CatalogKind, string> = { ter: '地形', furn: '家具', item: '物品', monster: '生物', vehicle: '载具', vpart: '载具部件', field: '场地效果', trap: '陷阱' };
+export const KIND_LABEL: Record<CatalogKind, string> = { ter: t('地形'), furn: t('家具'), item: t('物品'), monster: t('生物'), vehicle: t('载具'), vpart: t('载具部件'), field: t('场地效果'), trap: t('陷阱') };
 
 /** Kinds whose look the editor can change (the game resolves a model for them). */
 export const isEditable = (kind: string): kind is EditKind => ['ter', 'furn', 'item', 'monster', 'vehicle'].includes(kind);
@@ -77,13 +113,13 @@ export const isEditable = (kind: string): kind is EditKind => ['ter', 'furn', 'i
 export type Status = 'override' | 'fallback' | 'base' | 'texture' | 'procedural' | 'hidden' | 'none';
 
 export const STATUS_LABEL: Record<Status, string> = {
-  override: '本地覆盖',
-  fallback: '材质回退',
-  base: '基础模型',
-  texture: '仅贴图',
-  procedural: '程序生成',
-  hidden: '游戏中不显示',
-  none: '无模型',
+  override: t('本地覆盖'),
+  fallback: t('材质回退'),
+  base: t('基础模型'),
+  texture: t('仅贴图'),
+  procedural: t('程序生成'),
+  hidden: t('游戏中不显示'),
+  none: t('无模型'),
 };
 
 /** The status of one object, by the same resolution the game uses. */

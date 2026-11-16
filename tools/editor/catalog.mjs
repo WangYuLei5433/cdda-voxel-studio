@@ -1,8 +1,8 @@
-// The model editor's object catalog, read from the CDDA data files (no engine needed):
-// terrain, furniture, items, monsters, vehicles, vehicle parts, fields and traps with the
-// same fields the engine's catalog message carries (native/bridge/catalog.cpp), plus English
-// and Chinese names, and the Chinese names of the item and vehicle-part categories.
-// Run directly to print counts: node tools/editor/catalog.mjs
+// The studio's object catalog, read from the CDDA data files (no engine needed): terrain,
+// furniture, items, monsters, vehicles, vehicle parts, fields and traps with their English
+// names (and gettext contexts), and per-language name files built from CDDA's official
+// translations (.po), filled in where they have none by tools/editor/names/<lang>.json.
+// Run directly to print counts, or --write to generate public/data/cdda/<version>/.
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
@@ -35,6 +35,35 @@ export function readMo(path) {
     const value = buf.toString('utf8', to, to + tl).split('\0')[0];
     if (key && value) map.set(key, value);
   }
+  return map;
+}
+
+/** gettext .po file → Map of msgid (with "ctxt\u0004" prefix when present) → first translation. */
+export function readPo(path) {
+  const map = new Map();
+  if (!existsSync(path)) return map;
+  const unquote = (line) => JSON.parse(line.slice(line.indexOf('"')));
+  let entry = {};
+  let field = null;
+  const flush = () => {
+    const value = entry.msgstr ?? entry['msgstr[0]'];
+    if (entry.msgid && value) map.set(entry.msgctxt !== undefined ? `${entry.msgctxt}\u0004${entry.msgid}` : entry.msgid, value);
+    entry = {};
+    field = null;
+  };
+  for (const line of readFileSync(path, 'utf8').split('\n')) {
+    if (line.startsWith('#')) continue;
+    if (!line.trim()) { flush(); continue; }
+    const m = /^(msgctxt|msgid_plural|msgid|msgstr(?:\[\d+\])?)\s/.exec(line);
+    if (m) {
+      if (m[1] === 'msgctxt' || (m[1] === 'msgid' && (entry.msgstr !== undefined || entry['msgstr[0]'] !== undefined))) flush();
+      field = m[1];
+      entry[field] = unquote(line);
+    } else if (field && line.startsWith('"')) {
+      entry[field] += unquote(line);
+    }
+  }
+  flush();
   return map;
 }
 
@@ -158,11 +187,12 @@ export function inherit(parent, child) {
 }
 
 /**
- * Build the catalog. `jsonRoot`: a CDDA data/json folder. `moPath`: a translation .mo (optional).
+ * Build the catalog. `jsonRoot`: a CDDA data/json folder. `translations`: a .po / .mo path or a
+ * Map from readPo (optional); without it every `name` is the English one.
  * Each entry: { id, name, en, sym, color, flags, … } with kind-specific fields.
  */
-export function buildCatalog(jsonRoot, moPath) {
-  const zh = moPath ? readMo(moPath) : new Map();
+export function buildCatalog(jsonRoot, translations) {
+  const zh = translations instanceof Map ? translations : typeof translations === 'string' ? (translations.endsWith('.po') ? readPo : readMo)(translations) : new Map();
   // Per JSON type family: concrete objects by id, abstracts by name (for copy-from).
   const FAMILY = { terrain: 'ter', furniture: 'furn', MONSTER: 'monster', vehicle: 'vehicle', vehicle_part: 'vpart', field_type: 'field', trap: 'trap', ITEM_CATEGORY: 'itemCat', vehicle_part_category: 'vpartCat' };
   const names = Object.values(FAMILY).concat('item');
@@ -295,6 +325,55 @@ export function buildCatalog(jsonRoot, moPath) {
   };
 }
 
+/** Translation contexts of the category names (vp_categories.json: { "ctxt": "vp_category" }). */
+const LABEL_CTXT = { vpartCat: 'vp_category' };
+
+/** The gettext lookup the engine does: with the context first, then the bare English string. */
+const lookup = (map, en, ctxt) => (ctxt ? map.get(`${ctxt}\u0004${en}`) : undefined) ?? map.get(en);
+
+/**
+ * One language's names for an English catalog: official translations from `map` (readPo),
+ * else `extra` (tools/editor/names/<lang>.json: { kind: { id: name } }, also "variant" and
+ * "itemCat" / "vpartCat"), whose ids are listed under `generated`. Untranslated ids are left
+ * out: the studio shows the English name.
+ */
+export function buildNames(catalog, map, extra = {}, lang = '') {
+  const { labels, ...kinds } = catalog;
+  const names = { lang, kinds: {}, variant: {}, labels: {}, generated: {} };
+  const put = (group, id, en, ctxt, into) => {
+    const official = lookup(map, en, ctxt);
+    const made = official ? undefined : extra[group]?.[id];
+    if (official || made) into[id] = official ?? made;
+    if (made) (names.generated[group] ??= []).push(id);
+  };
+  for (const [kind, entries] of Object.entries(kinds)) {
+    const into = (names.kinds[kind] = {});
+    for (const e of entries) {
+      put(kind, e.id, e.en, e.ctxt, into);
+      for (const v of e.variants ?? []) put('variant', v.id, v.en, v.ctxt, names.variant);
+    }
+  }
+  for (const [group, table] of Object.entries(labels)) {
+    names.labels[group] = {};
+    for (const [id, en] of Object.entries(table)) put(group, id, en, LABEL_CTXT[group], names.labels[group]);
+  }
+  return names;
+}
+
+/** English names that `names` leaves untranslated: { kind: { id: en } } (for filling extra). */
+export function missingNames(catalog, names) {
+  const { labels, ...kinds } = catalog;
+  const out = {};
+  for (const [kind, entries] of Object.entries(kinds)) {
+    for (const e of entries) {
+      if (!names.kinds[kind][e.id]) (out[kind] ??= {})[e.id] = e.en;
+      for (const v of e.variants ?? []) if (!names.variant[v.id]) (out.variant ??= {})[v.id] = v.en;
+    }
+  }
+  for (const [group, table] of Object.entries(labels)) for (const [id, en] of Object.entries(table)) if (!names.labels[group][id]) (out[group] ??= {})[id] = en;
+  return out;
+}
+
 /**
  * Where the CDDA checkout is: $CDDA_DIR (a CDDA source tree or install with data/json and
  * lang/mo), else vendor/cdda in this repo. $CDDA_LANG picks the translation (default zh_CN).
@@ -309,44 +388,74 @@ export function cddaPaths(root) {
 export const CATALOG_DIR = 'public/data/cdda';
 
 /**
- * Write the catalog for one CDDA version to public/data/cdda/<version>/catalog.json and list
- * it in public/data/cdda/index.json (newest first). `info`: { version, commit, translations }.
+ * Write one CDDA version: public/data/cdda/<version>/catalog.json (English names) and
+ * names.<lang>.json per language, and list it in public/data/cdda/index.json (newest first).
+ * `info`: { version, commit, translations }; `names`: { lang: buildNames(...) }.
  */
-export function writeCatalog(root, catalog, info) {
+export function writeCatalog(root, catalog, info, names = {}) {
   if (!/^[A-Za-z0-9._-]+$/.test(info.version ?? '')) throw new Error('--version must be a plain name, e.g. experimental-2026-11-14');
   const { labels, ...kinds } = catalog;
   const counts = Object.fromEntries(Object.entries(kinds).map(([k, v]) => [k, v.length]));
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  const langs = Object.fromEntries(Object.entries(names).map(([lang, n]) => {
+    const translated = Object.values(n.kinds).reduce((a, t) => a + Object.keys(t).length, 0);
+    const generated = Object.entries(n.generated).filter(([g]) => g in kinds).reduce((a, [, ids]) => a + ids.length, 0);
+    return [lang, { path: `${info.version}/names.${lang}.json`, translated, generated, total }];
+  }));
   const meta = {
     cdda: info.version,
     ...(info.commit ? { commit: info.commit } : {}),
     ...(info.translations ? { translations: info.translations } : {}),
-    lang: info.lang,
     generated: new Date().toISOString().slice(0, 10),
     counts,
-    license: 'Derived from Cataclysm: Dark Days Ahead data (https://github.com/CleverRaven/Cataclysm-DDA), CC BY-SA 3.0.',
+    langs,
+    license: 'Derived from Cataclysm: Dark Days Ahead data and translations (https://github.com/CleverRaven/Cataclysm-DDA), CC BY-SA 3.0.',
   };
   const dir = join(root, CATALOG_DIR, info.version);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'catalog.json'), `${JSON.stringify({ meta, ...catalog })}\n`);
+  // The English catalog: "name" is the English name, so it is not stored twice.
+  const strip = (e) => { const { name: _name, ...rest } = e; return rest.variants ? { ...rest, variants: rest.variants.map(({ name: _n, ...v }) => v) } : rest; };
+  const english = { labels, ...Object.fromEntries(Object.entries(kinds).map(([k, v]) => [k, v.map(strip)])) };
+  writeFileSync(join(dir, 'catalog.json'), `${JSON.stringify({ meta, ...english })}\n`);
+  for (const [lang, n] of Object.entries(names)) writeFileSync(join(dir, `names.${lang}.json`), `${JSON.stringify(n)}\n`);
   const indexPath = join(root, CATALOG_DIR, 'index.json');
   const index = existsSync(indexPath) ? JSON.parse(readFileSync(indexPath, 'utf8')) : { versions: [] };
   index.versions = [{ id: info.version, path: `${info.version}/catalog.json`, ...meta }, ...index.versions.filter((v) => v.id !== info.version)];
   writeFileSync(indexPath, `${JSON.stringify(index, null, 2)}\n`);
-  return { meta, path: join(dir, 'catalog.json') };
+  return { meta, dir };
 }
 
-// node tools/editor/catalog.mjs                          print counts
-// node tools/editor/catalog.mjs --write --version <name> [--commit <sha>] [--translations <tag>]
+/** Studio-made names for what the official translation lacks: tools/editor/names/<lang>.json. */
+export function readExtraNames(root, lang) {
+  const p = join(root, 'tools/editor/names', `${lang}.json`);
+  return existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) : {};
+}
+
+// node tools/editor/catalog.mjs                                  print counts
+// node tools/editor/catalog.mjs --write --version <name> --translations <release tag> [--commit <sha>]
+//   names for every vendor/translations/<tag>/<lang>.po (node tools/fetch-translations.mjs <tag>)
+// node tools/editor/catalog.mjs --missing <lang> --translations <tag>   untranslated names as JSON
 if (import.meta.url === `file://${process.argv[1]}`) {
   const root = new URL('../../', import.meta.url).pathname;
   const arg = (name) => { const i = process.argv.indexOf(`--${name}`); return i > 0 ? process.argv[i + 1] : undefined; };
   const t0 = Date.now();
-  const { jsonRoot, mo, lang } = cddaPaths(root);
-  const c = buildCatalog(jsonRoot, mo);
+  const { jsonRoot } = cddaPaths(root);
+  const c = buildCatalog(jsonRoot);
   const { labels: _labels, ...kinds } = c;
-  console.log(Object.fromEntries(Object.entries(kinds).map(([k, v]) => [k, v.length])), `${Date.now() - t0} ms`);
-  if (process.argv.includes('--write')) {
-    const { path } = writeCatalog(root, c, { version: arg('version'), commit: arg('commit'), translations: arg('translations'), lang });
-    console.log('wrote', path);
+  const tag = arg('translations');
+  const poDir = tag ? join(root, 'vendor/translations', tag) : null;
+  const langs = poDir && existsSync(poDir) ? readdirSync(poDir).filter((f) => f.endsWith('.po')).map((f) => f.slice(0, -3)) : [];
+  const names = Object.fromEntries(langs.map((lang) => [lang, buildNames(c, readPo(join(poDir, `${lang}.po`)), readExtraNames(root, lang), lang)]));
+  if (arg('missing')) {
+    const lang = arg('missing');
+    if (!names[lang]) throw new Error(`no ${lang}.po under ${poDir}`);
+    const official = buildNames(c, readPo(join(poDir, `${lang}.po`)), {}, lang);
+    console.log(JSON.stringify(missingNames(c, official), null, 1));
+  } else {
+    console.error(Object.fromEntries(Object.entries(kinds).map(([k, v]) => [k, v.length])), `${Date.now() - t0} ms`, langs);
+    if (process.argv.includes('--write')) {
+      const { dir, meta } = writeCatalog(root, c, { version: arg('version'), commit: arg('commit'), translations: tag }, names);
+      console.error('wrote', dir, meta.langs);
+    }
   }
 }

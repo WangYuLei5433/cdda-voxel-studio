@@ -11,7 +11,7 @@ const E = (page: Page) => <T>(fn: (e: any) => T) => page.evaluate(`(${fn.toStrin
 const KIND_NAMES: Record<string, string> = { furn: '家具', ter: '地形', item: '物品', monster: '生物', vehicle: '载具', vpart: '载具部件', field: '场地效果', trap: '陷阱' };
 
 async function open(page: Page, query: string) {
-  await page.goto(`/${query}`);
+  await page.goto(`/${query}${query.includes('?') ? '&' : '?'}lang=zh_CN`);
   const e = E(page);
   await expect.poll(() => e((x) => Boolean(x?.ready && x.measure)), { timeout: 90_000 }).toBe(true);
   return e;

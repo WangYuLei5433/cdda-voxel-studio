@@ -2,6 +2,7 @@
 // and the model editor, so the editor shows exactly what the game does.
 import type { Appearance, Describable } from './appearance';
 import { colorOf } from './classify';
+import { t } from '../editor/i18n';
 import type { ModelInstance, ModelLibrary } from './models';
 import { legacyCreatureScale } from './world-scale';
 import { WORLD } from './world-scale';
@@ -34,15 +35,15 @@ export function planMonster(mon: MonsterInfo, seed: number, appearance: Appearan
   const chosen = appearance.explain('monster', mon);
   if (chosen.via === 'override' && chosen.resolved) {
     const r = chosen.resolved;
-    return { kind: 'model', key: r.model, tint: r.tint ? colorOf(mon.color) : undefined, extra: r.scale, scale: natural ? [1, 1, 1] : [legacy, legacy, legacy], ...(animalHeight ? { height: animalHeight * r.scale } : {}), source: `本地覆盖 · 模型 ${r.model}` };
+    return { kind: 'model', key: r.model, tint: r.tint ? colorOf(mon.color) : undefined, extra: r.scale, scale: natural ? [1, 1, 1] : [legacy, legacy, legacy], ...(animalHeight ? { height: animalHeight * r.scale } : {}), source: t('本地覆盖 · 模型 {key}', { key: r.model }) };
   }
   const r = appearance.resolve('monster', mon, seed);
   if (r) {
     return { kind: 'model', key: r.model, tint: r.tint ? colorOf(mon.color) : undefined, extra: r.scale,
       scale: natural ? [1, 1, 1] : [legacy, legacy, legacy],
-      ...(animalHeight ? { height: animalHeight * r.scale } : {}), source: `模型 ${r.model}` };
+      ...(animalHeight ? { height: animalHeight * r.scale } : {}), source: t('模型 {key}', { key: r.model }) };
   }
-  return { kind: 'placeholder', scale: [legacy, legacy, legacy], source: '无模型（占位胶囊）' };
+  return { kind: 'placeholder', scale: [legacy, legacy, legacy], source: t('无模型（占位胶囊）') };
 }
 
 /** Build the model a plan names (null for the placeholder or a missing model). */

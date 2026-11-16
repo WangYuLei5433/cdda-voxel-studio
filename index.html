@@ -8,20 +8,21 @@
   <body>
     <div id="ed">
       <header class="ed-head">
-        <strong class="ed-title">CDDA 模型工作室</strong>
+        <strong class="ed-title" data-i18n="CDDA 模型工作室">CDDA 模型工作室</strong>
         <span id="ed-world" class="ed-badge"></span>
         <span id="ed-pack" class="ed-badge"></span>
         <span id="ed-cdda" class="ed-badge"></span>
         <span class="ed-spacer"></span>
         <span id="ed-saved" class="ed-saved"></span>
+        <select id="ed-lang" class="ed-lang" data-i18n-title="语言"></select>
       </header>
 
       <aside class="ed-left">
         <div class="ed-picker">
-          <button type="button" id="ed-branch" class="ed-branch" aria-haspopup="tree" aria-expanded="false" title="选择分类"></button>
+          <button type="button" id="ed-branch" class="ed-branch" aria-haspopup="tree" aria-expanded="false" data-i18n-title="选择分类"></button>
           <div id="ed-tree" class="ed-tree" role="tree" hidden></div>
         </div>
-        <input id="ed-search" type="search" placeholder="搜索 id、中文名或英文名…" autocomplete="off" spellcheck="false" />
+        <input id="ed-search" type="search" data-i18n-placeholder="搜索 id、名称或英文名…" autocomplete="off" spellcheck="false" />
         <div class="ed-filters" id="ed-filters"></div>
         <div class="ed-listbar"><span id="ed-count" class="ed-count"></span><div id="ed-layout" class="ed-layout"></div></div>
         <ul id="ed-list" class="ed-list" role="listbox"></ul>
@@ -36,11 +37,11 @@
           <div class="ed-group" id="ed-anims" hidden></div>
         </div>
         <div id="ed-measure" class="ed-measure"></div>
-        <div id="ed-loading" class="ed-loading" hidden>加载模型…</div>
+        <div id="ed-loading" class="ed-loading" hidden data-i18n="加载模型…"></div>
       </main>
 
       <aside class="ed-right" id="ed-inspector">
-        <p class="ed-empty">从左侧选择一个对象。</p>
+        <p class="ed-empty" data-i18n="从左侧选择一个对象。"></p>
       </aside>
     </div>
     <script type="module" src="/src/editor/main.ts"></script>
