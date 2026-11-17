@@ -41,6 +41,8 @@ for (const [id, file] of [['mon_triffid', 'plant_creature'], ['mon_zombie', 'zom
     await page.setViewportSize({ width: 1500, height: 900 });
     await page.goto(`/?kind=monster&id=${id}&lang=zh_CN`);
     await expect.poll(() => page.evaluate(ready), { timeout: 60_000 }).toBe(true);
+    // A mesh set that binds this exact id wins over the voxel set's built-in type.
+    test.skip(await page.evaluate('window.__editor.status') === 'mesh', `a mesh set in vendor/mesh binds ${id} exactly`);
     await expect(page.locator('#ed-inspector')).toContainText(`starter/builtin/${file}.vox`);
     await expect(page.locator('#ed-inspector')).toContainText(`按原型匹配：${file}`);
     await page.waitForTimeout(500);

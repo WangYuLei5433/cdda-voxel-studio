@@ -5,7 +5,7 @@ import * as THREE from 'three';
 
 import { readVox, type VoxModel } from './vox-format';
 import { voxObject } from './vox-mesh';
-import { checkModel, entryFiles, parseVoxelSet, type VoxEntry, type VoxelSet } from './voxelset';
+import { checkModel, entryFiles, parseVoxelSet, type BindEntry, type VoxEntry, type VoxelSet } from './voxelset';
 
 export interface LoadedSet {
   /** Folder name, used in ids. */
@@ -57,8 +57,17 @@ export function libraryItems(sets: LoadedSet[]): VoxItem[] {
   return [...items.values()];
 }
 
-/** What an entry binds, in words: "builtin wall (brick)" / "mon_zombie, mon_zombie_fat". */
-export const entryLabel = (e: VoxEntry): string => (e.builtin ? `builtin ${e.builtin}${e.material ? ` (${e.material})` : ''}` : [e.id ?? []].flat().join(', '));
+let idName: (id: string) => string | undefined = () => undefined;
+/** How entryLabel names a bound id (the editor sets it: the object's name from the CDDA catalog). */
+export function setIdNamer(namer: (id: string) => string | undefined): void {
+  idName = namer;
+}
+
+/** What an entry binds, in words: "builtin wall (brick)" / "mon_zombie (zombie), mon_zombie_fat (fat zombie)". */
+export const entryLabel = (e: BindEntry): string =>
+  e.builtin
+    ? `builtin ${e.builtin}${e.material ? ` (${e.material})` : ''}`
+    : [e.id ?? []].flat().map((id) => { const n = idName(id); return n && n !== id ? `${id} (${n})` : id; }).join(', ');
 
 /** Built-in model types grouped for the library tree (cataclysm-3d doc/VOXEL_TILESETS.md). */
 export const BUILTIN_GROUPS: [string, string[]][] = [

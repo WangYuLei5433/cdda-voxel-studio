@@ -228,17 +228,18 @@ export const DICT: Record<string, [string, string]> = {
   '收集器': ['Collectors', 'Сборники'],
 
   // How objects are drawn
-  '无体素模型': ['No voxel model', 'Нет воксельной модели'],
-  '素材集文件': ['Voxel set file', 'Файл набора'],
+  '无模型': ['No model', 'Нет модели'],
+  '网格模型': ['Mesh model', 'Полигональная модель'],
+  '素材集文件': ['Set file', 'Файл набора'],
   '宽 × 深 × 高 ≈ {w} × {d} × {h} 体素 · 墙高的 {wall}% · 人高的 {person}%': [
     'W × D × H ≈ {w} × {d} × {h} voxels · {wall}% of wall height · {person}% of person height',
     'Ш × Г × В ≈ {w} × {d} × {h} вокселей · {wall}% высоты стены · {person}% роста человека',
   ],
-  '还没有体素模型。长方体按 CDDA 数据估算尺寸，只作参照。': [
-    'No voxel model yet. The box is sized from the CDDA data, as a reference only.',
-    'Воксельной модели пока нет. Размер блока оценён по данным CDDA, только для ориентира.',
+  '还没有模型。长方体按 CDDA 数据估算尺寸，只作参照。': [
+    'No model yet. The box is sized from the CDDA data, as a reference only.',
+    'Модели пока нет. Размер блока оценён по данным CDDA, только для ориентира.',
   ],
-  '体素素材集 {n} 个 · 模型 {m} 个': ['{n} voxel sets · {m} models', 'Воксельных наборов: {n} · моделей: {m}'],
+  '体素素材集 {n} 个 · 网格素材集 {k} 个 · 模型 {m} 个': ['{n} voxel sets · {k} mesh sets · {m} models', 'Воксельных наборов: {n} · полигональных: {k} · моделей: {m}'],
   '模型读取失败：{error}': ['Could not read the model: {error}', 'Не удалось прочитать модель: {error}'],
   '按最长边 {l} cm、体积 {v} L 估算': ['Estimated from the longest side {l} cm and volume {v} L', 'Оценка по длине {l} см и объёму {v} л'],
   '按体积 {v} L 估算（{shape}）': ['Estimated from the volume {v} L ({shape})', 'Оценка по объёму {v} л ({shape})'],
@@ -251,7 +252,7 @@ export const DICT: Record<string, [string, string]> = {
   '载具部件：一格': ['Vehicle part: one tile', 'Деталь транспорта: одна клетка'],
   '场地效果：铺满一格': ['Field: covers one tile', 'Поле: покрывает одну клетку'],
   '陷阱：地面上的一块': ['Trap: a patch on the ground', 'Ловушка: участок на земле'],
-  '没有体素模型：占位长方体': ['No voxel model: stand-in box', 'Нет воксельной модели: блок-заглушка'],
+  '没有模型：占位长方体': ['No model: stand-in box', 'Нет модели: блок-заглушка'],
   '{w} × {d} × {h} 格（宽 × 深 × 高）': ['{w} × {d} × {h} tiles (W × D × H)', '{w} × {d} × {h} клеток (Ш × Г × В)'],
   '体素模型': ['Voxel models', 'Воксельные модели'],
   '按 id 匹配': ['matched by id', 'по id'],
@@ -271,4 +272,68 @@ export const DICT: Record<string, [string, string]> = {
   '最底层是空的：模型会悬在地面上方': ['The bottom layer is empty: the model floats above the ground', 'Нижний слой пуст: модель висит над землёй'],
   '宽或深与每格体素数的奇偶不同：无法正好居中': ['Width or depth has a different parity than voxels per tile: it cannot be centered exactly', 'Ширина или глубина другой чётности, чем вокселей на клетку: точно не отцентровать'],
   '模型是空的': ['The model is empty', 'Модель пуста'],
+
+  // Names of bound ids in the model library
+  '玩家': ['Player', 'Игрок'],
+  '玩家（男）': ['Player (male)', 'Игрок (муж.)'],
+  '玩家（女）': ['Player (female)', 'Игрок (жен.)'],
+  'NPC（男）': ['NPC (male)', 'NPC (муж.)'],
+  'NPC（女）': ['NPC (female)', 'NPC (жен.)'],
+  '{name} 等（共 {n} 个）': ['{name} and others ({n} in all)', '{name} и другие (всего {n})'],
+
+  // Try on
+  '试配': ['Try on', 'Примерка'],
+  '试配到对象': ['Try on an object', 'Примерить на объект'],
+  '选一个 CDDA 对象，把这个模型套上去看': ['pick a CDDA object to show this model on', 'выберите объект CDDA, чтобы показать на нём модель'],
+  '搜索对象 id 或名称…': ['Search object id or name…', 'Поиск по id или названию…'],
+  '输入 id 或名称，比如 mon_zombie_cop、警察': ['Type an id or a name, such as mon_zombie_cop or cop', 'Введите id или название, например mon_zombie_cop'],
+  '没有匹配的对象': ['No matching object', 'Нет подходящих объектов'],
+  '从模型库挑一个模型套到这个对象上': ['put a model library file on this object', 'надеть на объект модель из библиотеки'],
+  '试配中：{name}': ['Trying on: {name}', 'Примерка: {name}'],
+  '复制映射条目': ['Copy mapping entry', 'Копировать запись'],
+  '取消': ['Cancel', 'Отмена'],
+  '已复制': ['Copied', 'Скопировано'],
+  '搜索模型文件…': ['Search model files…', 'Поиск файлов моделей…'],
+  '{n} 个模型，点一个套到当前对象上': ['{n} models; click one to put it on this object', 'Моделей: {n}; нажмите, чтобы примерить'],
+  '没有匹配的模型': ['No matching model', 'Нет подходящих моделей'],
+  '复制这一行到 mapping.json：': ['Copy this line into mapping.json:', 'Скопируйте строку в mapping.json:'],
+  '试配：{file}（只是预览，未绑定）': ['Trying on {file} (preview only, not bound)', 'Примерка: {file} (только предпросмотр, не привязано)'],
+
+  '特效：循环播放（独立于骨骼，{n} 个特效节点）': ['Effects: looping (independent of the rig, {n} effect nodes)', 'Эффекты: в цикле (независимо от скелета, узлов: {n})'],
+
+  // Source switcher
+  '来源': ['Source', 'Источник'],
+  '原型': ['type', 'тип'],
+  '默认显示': ['Shown by default', 'Показывается по умолчанию'],
+  '占位长方体': ['stand-in box', 'блок-заглушка'],
+  '预览来源：{name}（默认显示：{base}）': ['Previewing {name} (shown by default: {base})', 'Предпросмотр: {name} (по умолчанию: {base})'],
+
+  // Mesh sets (meshset.json: .glb / .gltf / .obj)
+  '模型库': ['Model library', 'Библиотека моделей'],
+  '体素集：{name}': ['Voxel set: {name}', 'Воксельный набор: {name}'],
+  '网格集：{name}': ['Mesh set: {name}', 'Полигональный набор: {name}'],
+  '网格素材集 {set}：{how}': ['Mesh set {set}: {how}', 'Полигональный набор {set}: {how}'],
+  '这个模型来自网格素材集。要改它，请在建模软件（如 Blender）里修改文件；要换成别的模型或调整摆放，请修改 meshset.json。cataclysm-3d 不读网格素材集。': [
+    'This model comes from a mesh set. To change it, edit the file in a 3D tool such as Blender; to use another model or change its placement, edit meshset.json. cataclysm-3d does not read mesh sets.',
+    'Эта модель из полигонального набора. Чтобы изменить её, правьте файл в 3D-редакторе (например, Blender); чтобы заменить модель или её размещение, правьте meshset.json. cataclysm-3d не читает полигональные наборы.',
+  ],
+  '{w} × {d} × {h} 格（宽 × 深 × 高），缩放 {s}': ['{w} × {d} × {h} tiles (W × D × H), scale {s}', '{w} × {d} × {h} клеток (Ш × Г × В), масштаб {s}'],
+  '{t} 个三角形 · {n} 张贴图': ['{t} triangles · {n} textures', 'Треугольников: {t} · текстур: {n}'],
+  '动画：{names}': ['Animations: {names}', 'Анимации: {names}'],
+  '动画': ['Animation', 'Анимация'],
+  '静止': ['Rest', 'Покой'],
+  '超过 {n} 格大：检查缩放（1 个模型单位 = 1 格 = 1 米）': [
+    'Larger than {n} tiles: check the scale (1 model unit = 1 tile = 1 m)',
+    'Больше {n} клеток: проверьте масштаб (1 единица модели = 1 клетка = 1 м)',
+  ],
+  '三角形超过 {n} 个：游戏里同屏多个时会很重': [
+    'More than {n} triangles: heavy when many are on screen in the game',
+    'Больше {n} треугольников: тяжело, когда в игре их много на экране',
+  ],
+  '文件里没有这些动画：{names}': ['The file has no animations named: {names}', 'В файле нет анимаций: {names}'],
+  '同时设置了 {fields}，只用 {used}': ['{fields} are all set; only {used} is used', 'Заданы {fields}; используется только {used}'],
+  'OBJ 网格：cataclysm-3d 加载时会把它体素化（每格 {n} 体素），这里显示原始网格': [
+    'OBJ mesh: cataclysm-3d voxelizes it when it loads ({n} voxels per tile); shown here as the mesh itself',
+    'OBJ-сетка: cataclysm-3d вокселизирует её при загрузке ({n} вокселей на клетку); здесь показана сама сетка',
+  ],
 };

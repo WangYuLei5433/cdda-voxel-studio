@@ -4,8 +4,8 @@
 import { expect, test } from '../support/browser-fixture';
 
 const cases = [
-  { lang: 'ru', title: 'Студия моделей CDDA', name: 'стул', heading: 'Нет воксельной модели', kind: 'Мебель' },
-  { lang: 'en', title: 'CDDA Model Studio', name: 'chair', heading: 'No voxel model', kind: 'Furniture' },
+  { lang: 'ru', title: 'Студия моделей CDDA', name: 'стул', heading: 'Нет модели', kind: 'Мебель' },
+  { lang: 'en', title: 'CDDA Model Studio', name: 'chair', heading: 'No model', kind: 'Furniture' },
 ];
 
 for (const c of cases) {

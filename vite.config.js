@@ -9,7 +9,14 @@ const ROOT = dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   plugins: [editorPlugin({ root: ROOT })],
   optimizeDeps: {
-    include: ['three', 'three/examples/jsm/controls/OrbitControls.js'],
+    include: [
+      'three',
+      'three/examples/jsm/controls/OrbitControls.js',
+      'three/examples/jsm/loaders/GLTFLoader.js',
+      'three/examples/jsm/loaders/MTLLoader.js',
+      'three/examples/jsm/loaders/OBJLoader.js',
+      'three/examples/jsm/utils/SkeletonUtils.js',
+    ],
   },
   server: {
     host: '127.0.0.1',

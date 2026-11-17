@@ -43,6 +43,9 @@ export class Stage {
   options: StageOptions = { grid: true, wall: true, person: true, bbox: true, wireframe: false };
   /** Called after each frame (tests read the renderer's state). */
   onFrame: (() => void) | null = null;
+  /** Called before each frame with the seconds since the last one (the shown model's animation). */
+  tick: ((dt: number) => void) | null = null;
+  private readonly clock = new THREE.Clock();
   frames = 0;
 
   constructor(readonly canvas: HTMLCanvasElement) {
@@ -81,6 +84,8 @@ export class Stage {
   }
 
   private frame(): void {
+    const dt = Math.min(this.clock.getDelta(), 0.1);
+    this.tick?.(dt);
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
     this.frames++;
@@ -126,6 +131,7 @@ export class Stage {
 
   /** Clear the shown object. */
   clear(): void {
+    this.tick = null;
     for (const c of [...this.subjectRoot.children]) this.subjectRoot.remove(c);
     this.subjectRoot.scale.set(1, 1, 1);
     this.subjectRoot.rotation.set(0, 0, 0);

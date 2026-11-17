@@ -1,22 +1,25 @@
 // CDDA Model Studio (index.html): browse every CDDA object, see the voxel model a voxel set
-// gives it (cataclysm-3d's format: voxelset.json + MagicaVoxel .vox files), or a stand-in box
-// sized from its CDDA data, next to a wall and a person at cataclysm-3d's scale.
+// gives it (cataclysm-3d's format: voxelset.json + MagicaVoxel .vox files), the mesh model a
+// mesh set gives it (meshset.json + .glb / .gltf / .obj files), or a stand-in box sized from
+// its CDDA data, next to a wall and a person at cataclysm-3d's scale.
 import './editor.css';
 
+import { loadMeshSets, meshItemKey, meshLibraryItems, type LoadedMeshSet, type MeshItem } from '../mesh/library';
+import type { MeshEntry } from '../mesh/meshset';
 import { colorOf } from '../render/classify';
 import { WORLD } from '../render/world-scale';
-import { builtinGroup, entryLabel, libraryItems, loadVoxelSets } from '../vox/library';
-import { VoxMatcher, type BuiltinKinds } from '../vox/match';
+import { builtinGroup, entryLabel, libraryItems, loadVoxelSets, setIdNamer } from '../vox/library';
+import { VoxMatcher, voxId, type BuiltinKinds, type VoxMatch } from '../vox/match';
 import { applyNames, EMPTY_CATALOG, search, STATUS_LABEL, type CatalogEntry, type CatalogIndex, type CatalogKind, type CatalogNames, type EditorCatalog, type Status } from './catalog';
-import { lang, LANGS, setLang, t, type Lang } from './i18n';
+import { lang, LANGS, listSep, setLang, t, type Lang } from './i18n';
 import { esc, measureHtml, renderInspector } from './inspector';
 import { Stage, type Measure, type View } from './stage';
-import { buildPlaceholder, buildVoxSubject, type Subject } from './subject';
+import { buildMeshSubject, buildPlaceholder, buildVoxSubject, placeholderSize, type MeshMatch, type Subject } from './subject';
 import { ThumbnailCache } from './thumbs';
 import { branchOf, buildTree, inBranch, KIND_NAME, KINDS, pathOf, trail, type Kind, type TreeNode } from './tree';
 
 type Tab = Kind;
-const FILTERS: (Status | 'all')[] = ['all', 'voxel', 'none', 'library'];
+const FILTERS: (Status | 'all')[] = ['all', 'voxel', 'mesh', 'none', 'library'];
 const LIST_LIMIT = 400;
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
@@ -38,12 +41,52 @@ const catalog: EditorCatalog = { ...EMPTY_CATALOG, ...((catalogVersion && (await
 const namesPath = lang === 'en' ? undefined : catalogVersion?.langs?.[lang]?.path;
 applyNames(catalog, namesPath ? await fetchJson<CatalogNames>(`/data/cdda/${namesPath}`) : null);
 
-const voxelSets = await loadVoxelSets();
+const [voxelSets, meshSets] = await Promise.all([loadVoxelSets(), loadMeshSets()]);
 const voxItems = new Map(libraryItems(voxelSets).map((i) => [i.key, i]));
+const meshItems = new Map(meshLibraryItems(meshSets).map((i) => [i.key, i]));
 // Built-in model type per object (tools/classify/builtin-kinds.mjs), for sets that bind by type.
-const builtinKinds = catalogVersion && voxelSets.length ? await fetchJson<BuiltinKinds>(`/data/cdda/${catalogVersion.id}/builtin-kinds.json`) : null;
+const builtinKinds = catalogVersion && (voxelSets.length || meshSets.length) ? await fetchJson<BuiltinKinds>(`/data/cdda/${catalogVersion.id}/builtin-kinds.json`) : null;
 const matcher = new VoxMatcher(voxelSets, catalog, builtinKinds, voxItems);
+const meshMatcher = new VoxMatcher<MeshEntry, LoadedMeshSet, MeshItem>(meshSets, catalog, builtinKinds, meshItems, meshItemKey);
 const voxMatch = (kind: Tab, id: string, v = 0) => (kind === 'vox' || !matcher.active ? null : matcher.find(kind, id, v));
+const meshMatch = (kind: Tab, id: string, v = 0) => (kind === 'vox' || !meshMatcher.active ? null : meshMatcher.find(kind, id, v));
+// The more precise match wins (own id, then looks_like, then built-in type); on a tie the voxel
+// set wins (it works in cataclysm-3d too). A mesh made for this exact id beats a voxel model
+// the object only gets through its built-in type.
+const PRECISION = { id: 0, looks_like: 1, builtin: 2 } as const;
+function modelMatch(kind: Tab, id: string, v = 0) {
+  const vm = voxMatch(kind, id, v), mm = meshMatch(kind, id, v);
+  if (vm && (!mm || PRECISION[vm.via] <= PRECISION[mm.via])) return { format: 'vox' as const, vm };
+  return mm ? { format: 'mesh' as const, mm } : null;
+}
+
+/** One way to show an object: a set's model, or the stand-in box. */
+interface Source {
+  /** "vox:<set>", "mesh:<set>" or "box". */
+  key: string;
+  label: string;
+  format: 'vox' | 'mesh' | 'box';
+  vm?: VoxMatch;
+  mm?: MeshMatch;
+}
+const viaLabel = (m: { via: string; matched: string }) => (m.via === 'id' ? 'id' : m.via === 'looks_like' ? `looks_like ${m.matched}` : `${t('原型')} ${m.matched}`);
+/**
+ * Every source the object can be shown from: each voxel and mesh set that has a model for it
+ * (modelMatch's choice first, then voxel sets and mesh sets in load order) and the stand-in box.
+ * Empty when no set has a model (the box is then the only choice).
+ */
+function sourcesOf(kind: Tab, id: string, v = 0): Source[] {
+  if (kind === 'vox') return [];
+  const all: Source[] = [
+    ...(matcher.active ? matcher.findAll(kind, id, v) : []).map((vm): Source => ({ key: `vox:${vm.set.id}`, label: `${vm.set.set.name} · ${viaLabel(vm)}`, format: 'vox', vm })),
+    ...(meshMatcher.active ? meshMatcher.findAll(kind, id, v) : []).map((mm): Source => ({ key: `mesh:${mm.set.id}`, label: `${mm.set.set.name} · ${viaLabel(mm)}`, format: 'mesh', mm })),
+  ];
+  if (!all.length) return [];
+  const best = modelMatch(kind, id, v);
+  const bestKey = best?.format === 'vox' ? `vox:${best.vm.set.id}` : best ? `mesh:${best.mm.set.id}` : null;
+  all.sort((a, b) => Number(b.key === bestKey) - Number(a.key === bestKey));
+  return [...all, { key: 'box', label: t('占位长方体'), format: 'box' }];
+}
 
 // ── Static texts, language picker, header ───────────────────────────────────────────────
 document.documentElement.lang = lang === 'zh_CN' ? 'zh' : lang;
@@ -56,7 +99,7 @@ langSelect.innerHTML = LANGS.map(([l, label]) => `<option value="${l}" ${l === l
 langSelect.addEventListener('change', () => setLang(langSelect.value as Lang));
 const stage = new Stage($<HTMLCanvasElement>('#ed-canvas'));
 $('#ed-world').textContent = t('墙高 {wall} 格 · 人高 {person} 格', { wall: WORLD.wallHeight, person: WORLD.personHeight });
-$('#ed-pack').textContent = t('体素素材集 {n} 个 · 模型 {m} 个', { n: voxelSets.length, m: voxItems.size });
+$('#ed-pack').textContent = t('体素素材集 {n} 个 · 网格素材集 {k} 个 · 模型 {m} 个', { n: voxelSets.length, k: meshSets.length, m: voxItems.size + meshItems.size });
 $('#ed-cdda').textContent = catalogVersion ? `CDDA ${catalogVersion.cdda}` : t('未找到 CDDA 对象表');
 
 // ── State ───────────────────────────────────────────────────────────────────────────────
@@ -66,6 +109,16 @@ let query = params.get('q') ?? '';
 let filter: Status | 'all' = 'all';
 let selected: { kind: Tab; id: string } | null = urlKind && params.get('id') ? { kind: urlKind, id: params.get('id')! } : null;
 let variant = 0;
+/** The source shown instead of the default one (?src=), or null. */
+let source: string | null = params.get('src');
+let sources: Source[] = [];
+/** Try on: a library file (model library key) shown on the selected object instead of its own model (?try=). */
+let tryOn: string | null = params.get('try');
+let tryOpen = false;
+let tryQuery = '';
+/** "Try on an object" (a library file selected): the object search. */
+let targetQuery = '';
+let activeSource: string | null = null;
 let subject: Subject | null = null;
 let measure: Measure | null = null;
 let view: View = 'iso';
@@ -95,10 +148,38 @@ let layout: Layout = stored<Layout>('vox-editor-layout', ['list', 'grid'], 'list
 let cellSize: CellSize = stored<CellSize>('vox-editor-cell', ['s', 'm', 'l'], 'm');
 const thumbs = new ThumbnailCache();
 
-const vox0: CatalogEntry[] = [...voxItems.values()].map((i) => ({
-  id: i.key, name: i.file.replace(/^.*\//, '').replace(/\.vox$/i, ''), en: i.entries.map(entryLabel).join(' · '), sym: '▣', color: 'light_gray', flags: [],
-  cat: builtinGroup(i.entries[0]?.builtin), voxSet: i.set.id, voxSetName: i.set.set.name,
-}));
+// Names of bound ids: the CDDA catalog's (in the interface language), and cataclysm-3d's
+// character ids, which the catalog does not have.
+const CHARACTER_NAMES: Record<string, string> = { player: t('玩家'), player_male: t('玩家（男）'), player_female: t('玩家（女）'), npc: 'NPC', npc_male: t('NPC（男）'), npc_female: t('NPC（女）') };
+const nameById = new Map<string, string>();
+for (const k of ['ter', 'furn', 'item', 'monster', 'vehicle', 'vpart', 'field', 'trap'] as const) for (const e of catalog[k]) nameById.set(k === 'vpart' ? `vp_${e.id}` : e.id, e.name);
+const idName = (id: string): string | undefined => nameById.get(id) ?? CHARACTER_NAMES[id];
+setIdNamer(idName);
+/** A set entry's own display name (`names`: { zh_CN, en, ru }), for files bound to nothing. */
+function ownName(entries: Record<string, unknown>[]): string | null {
+  const n = entries.find((e) => e.names && typeof e.names === 'object')?.names as Record<string, string> | undefined;
+  return n ? n[lang] ?? n.en ?? null : null;
+}
+
+/** A library file's title: the names of the objects it is bound to, if any. */
+function boundName(entries: { id?: string | string[] }[]): string | null {
+  const names = [...new Set(entries.flatMap((e) => [e.id ?? []].flat()).map(idName).filter((n): n is string => Boolean(n)))];
+  if (!names.length) return null;
+  return names.length <= 2 ? names.join(listSep()) : t('{name} 等（共 {n} 个）', { name: names[0], n: names.length });
+}
+
+// The model library: every file of every voxel set and mesh set, titled by what it is bound to.
+const fileName = (file: string) => file.replace(/^.*\//, '').replace(/\.(vox|glb|gltf|obj)$/i, '');
+const vox0: CatalogEntry[] = [
+  ...[...voxItems.values()].map((i) => ({
+    id: i.key, name: boundName(i.entries) ?? ownName(i.entries) ?? fileName(i.file), en: [fileName(i.file), ...i.entries.map(entryLabel)].join(' · '), sym: '▣', color: 'light_gray', flags: [],
+    cat: builtinGroup(i.entries[0]?.builtin), voxSet: i.set.id, voxSetName: t('体素集：{name}', { name: i.set.set.name }),
+  })),
+  ...[...meshItems.values()].map((i) => ({
+    id: i.key, name: boundName(i.entries) ?? ownName(i.entries) ?? fileName(i.file), en: [fileName(i.file), ...i.entries.map(entryLabel)].join(' · ').replace(/ · $/, ''), sym: '◆', color: 'light_cyan', flags: [],
+    cat: builtinGroup(i.entries[0]?.builtin), voxSet: `mesh:${i.set.id}`, voxSetName: t('网格集：{name}', { name: i.set.set.name }),
+  })),
+];
 const entriesOf = (k: Tab): CatalogEntry[] => (k === 'vox' ? vox0 : catalog[k]);
 
 // ── Object tree: every kind split into branches ─────────────────────────────────────────
@@ -122,7 +203,8 @@ function status(k: Tab, e: CatalogEntry): Status {
   const key = `${k}:${e.id}`;
   let s = statusCache.get(key);
   if (!s) {
-    s = k === 'vox' ? 'library' : voxMatch(k, e.id) ? 'voxel' : 'none';
+    const found = k === 'vox' ? null : modelMatch(k, e.id);
+    s = k === 'vox' ? 'library' : found?.format === 'vox' ? 'voxel' : found ? 'mesh' : 'none';
     statusCache.set(key, s);
   }
   return s;
@@ -261,11 +343,22 @@ function entryOf(sel: { kind: Tab; id: string }): CatalogEntry | undefined {
   return entriesOf(sel.kind).find((e) => e.id === sel.id);
 }
 
-/** An object's voxel model when a set has one, else its stand-in box. */
-function buildFor(kind: Tab, entry: CatalogEntry, v: number): Promise<Subject> {
-  if (kind === 'vox') return buildVoxSubject(voxItems.get(entry.id)!);
-  const m = voxMatch(kind, entry.id, v);
-  if (m) return buildVoxSubject(m.item, m, m.entry.tint ? colorOf(entry.color) : undefined);
+/**
+ * An object's best model (modelMatch: the more precise of its voxel and mesh matches), else its
+ * stand-in box; `from` (one of sourcesOf) shows that source instead.
+ */
+function buildFor(kind: Tab, entry: CatalogEntry, v: number, from?: Source): Promise<Subject> {
+  if (kind === 'vox') {
+    const mesh = meshItems.get(entry.id);
+    return mesh ? buildMeshSubject(mesh) : buildVoxSubject(voxItems.get(entry.id)!);
+  }
+  const tintOf = (e: { tint?: unknown }) => (e.tint ? colorOf(entry.color) : undefined);
+  if (from?.vm) return buildVoxSubject(from.vm.item, from.vm, tintOf(from.vm.entry));
+  if (from?.mm) return buildMeshSubject(from.mm.item, from.mm, tintOf(from.mm.entry));
+  if (from?.format === 'box') return Promise.resolve(buildPlaceholder(kind as CatalogKind, entry));
+  const found = modelMatch(kind, entry.id, v);
+  if (found?.format === 'vox') return buildVoxSubject(found.vm.item, found.vm, found.vm.entry.tint ? colorOf(entry.color) : undefined);
+  if (found?.format === 'mesh') return buildMeshSubject(found.mm.item, found.mm, found.mm.entry.tint ? colorOf(entry.color) : undefined);
   return Promise.resolve(buildPlaceholder(kind as CatalogKind, entry));
 }
 
@@ -281,9 +374,19 @@ async function show(): Promise<void> {
     return;
   }
   $('#ed-loading').hidden = false;
+  sources = sourcesOf(sel.kind, sel.id, variant);
+  const chosen = sources.find((x) => x.key === source) ?? sources[0];
+  const trying = sel.kind !== 'vox' && tryOn && (meshItems.has(tryOn) || voxItems.has(tryOn)) ? tryOn : null;
+  activeSource = trying ? null : chosen?.key ?? null;
   let built: Subject;
   try {
-    built = await buildFor(sel.kind, entry, variant);
+    if (trying) {
+      built = await buildTry(sel.kind, entry, trying);
+      built.notes.unshift(t('试配：{file}（只是预览，未绑定）', { file: tryLabel(trying) }));
+    } else {
+      built = await buildFor(sel.kind, entry, variant, chosen);
+      if (chosen && chosen !== sources[0]) built.notes.unshift(t('预览来源：{name}（默认显示：{base}）', { name: chosen.label, base: sources[0].label }));
+    }
   } catch (err) {
     built = { ...buildPlaceholder(sel.kind === 'vox' ? 'furn' : sel.kind, entry), source: t('模型读取失败：{error}', { error: String((err as Error).message ?? err) }) };
   }
@@ -291,10 +394,13 @@ async function show(): Promise<void> {
   $('#ed-loading').hidden = true;
   subject = built;
   measure = stage.show(built.object);
+  stage.tick = built.update ?? null;
   stage.view(view);
   $('#ed-measure').innerHTML = measureHtml(measure);
   renderToolbar();
-  renderInspector($('#ed-inspector'), { kind: sel.kind, branch: branchLabel(objectPath(sel.kind, entry)), entry, status: status(sel.kind, entry), subject: built });
+  const shown: Status = trying ? (meshItems.has(trying) ? 'mesh' : 'voxel') : !chosen || chosen === sources[0] ? status(sel.kind, entry) : chosen.format === 'vox' ? 'voxel' : chosen.format === 'mesh' ? 'mesh' : 'none';
+  renderInspector($('#ed-inspector'), { kind: sel.kind, branch: branchLabel(objectPath(sel.kind, entry)), entry, status: shown, subject: built });
+  renderPick();
 }
 
 function select(kind: Tab, id: string): void {
@@ -305,13 +411,157 @@ function select(kind: Tab, id: string): void {
     revealBranch();
     renderTree();
   }
-  if (selected?.id !== id || selected.kind !== kind) variant = 0;
+  if (selected?.id !== id || selected.kind !== kind) {
+    variant = 0;
+    source = null;
+    tryOn = null;
+  }
   selected = { kind, id };
   const url = new URL(location.href);
   url.searchParams.set('kind', kind);
   url.searchParams.set('id', id);
+  if (source) url.searchParams.set('src', source);
+  else url.searchParams.delete('src');
+  if (!tryOn) url.searchParams.delete('try');
   history.replaceState(null, '', url);
   renderList();
+  void show();
+}
+
+// ── Try on ──────────────────────────────────────────────────────────────────────────────
+/**
+ * The size a tried model gets on an object: a creature as tall as its CDDA volume suggests (or as
+ * long, lying), an item as long as its longest side; anything else keeps the model's own size.
+ */
+function trySize(kind: Tab, e: CatalogEntry): Partial<MeshEntry> {
+  const r = (n: number) => Math.round(n * 1000) / 1000;
+  if (kind === 'monster') {
+    const [w, h, d] = placeholderSize('monster', e).size;
+    return h >= Math.max(w, d) ? { height: r(h) } : { fit: r(Math.max(w, d)) };
+  }
+  if (kind === 'item') return { fit: r((e.longestSide ?? 100) / 1000) };
+  return {};
+}
+
+const tryLabel = (key: string) => {
+  const item = meshItems.get(key) ?? voxItems.get(key);
+  return item ? `${item.set.set.name} · ${item.file}` : key;
+};
+
+function buildTry(kind: Tab, e: CatalogEntry, key: string): Promise<Subject> {
+  const mesh = meshItems.get(key);
+  return mesh ? buildMeshSubject(mesh, undefined, undefined, trySize(kind, e)) : buildVoxSubject(voxItems.get(key)!);
+}
+
+/**
+ * One line for tools/deadwood/mapping.json (cdda-cubeclysm-3d): the object's id, the tried file
+ * as "<set>:<file>", where the library will keep it, and the size tried. `why` is left to fill in.
+ */
+function trySnippet(kind: Tab, e: CatalogEntry, key: string): string {
+  const item = meshItems.get(key) ?? voxItems.get(key)!;
+  const id = kind === 'vox' ? e.id : voxId(kind, e.id);
+  const group = kind === 'monster' ? 'monsters' : kind === 'item' ? 'items' : kind;
+  const ext = item.file.replace(/^.*\./, '');
+  return JSON.stringify({ id, pool: `${item.set.id}:${item.file}`, file: `${group}/${id}.${ext}`, ...(meshItems.has(key) ? trySize(kind, e) : {}), why: '' });
+}
+
+function setTry(key: string | null): void {
+  tryOn = key;
+  const url = new URL(location.href);
+  if (key) url.searchParams.set('try', key);
+  else url.searchParams.delete('try');
+  history.replaceState(null, '', url);
+  void show();
+}
+
+/**
+ * The inspector's model choices, under its "model" section: the sources the object can be shown
+ * from, and Try on (a searchable thumbnail grid of every model library file). For a library file
+ * the other way round: Try on an object (search a CDDA object, show this file on it).
+ */
+function renderPick(): void {
+  const host = $('#ed-inspector');
+  host.querySelector('#ed-pick')?.remove();
+  if (!selected) return;
+  const sections = host.querySelectorAll('.ed-sec');
+  const after = sections[1] ?? sections[0];
+  if (!after) return;
+  let html: string;
+  if (selected.kind === 'vox') {
+    html = `<section class="ed-sec" id="ed-pick"><details id="ed-try" ${tryOpen ? 'open' : ''}><summary><b>${t('试配到对象')}</b> <span class="sub">${t('选一个 CDDA 对象，把这个模型套上去看')}</span></summary>
+      <input id="ed-target-q" type="search" placeholder="${t('搜索对象 id 或名称…')}" value="${esc(targetQuery)}"><ul id="ed-target-list" class="ed-target-list"></ul></details></section>`;
+  } else {
+    const src = sources.length >= 2
+      ? `<div class="ed-pick-row"><h3>${t('来源')}</h3><div class="ed-pick-buttons">${sources.map((x, i) => `<button type="button" data-source="${esc(x.key)}" class="${x.key === activeSource ? 'on' : ''}" title="${esc(i === 0 ? t('默认显示') : x.label)}">${esc(x.label)}${i === 0 ? ' ★' : ''}</button>`).join('')}</div></div>`
+      : '';
+    const trying = tryOn
+      ? `<div class="ed-try-on"><span class="try-name" title="${esc(tryLabel(tryOn))}">${t('试配中：{name}', { name: esc(vox0.find((e) => e.id === tryOn)?.name ?? tryOn) })}</span><button type="button" class="primary" data-try-copy>${t('复制映射条目')}</button><button type="button" data-try-clear>${t('取消')}</button></div>`
+      : '';
+    html = `<section class="ed-sec" id="ed-pick">${src}<details id="ed-try" ${tryOpen || tryOn ? 'open' : ''}><summary><b>${t('试配')}</b> <span class="sub">${t('从模型库挑一个模型套到这个对象上')}</span></summary>${trying}
+      <input id="ed-try-q" type="search" placeholder="${t('搜索模型文件…')}" value="${esc(tryQuery)}"><div class="hint" id="ed-try-hint"></div><ul id="ed-try-list" class="ed-try-list"></ul></details></section>`;
+  }
+  after.insertAdjacentHTML('afterend', html);
+  if (selected.kind === 'vox') renderTargetList();
+  else renderTryList();
+}
+
+/** Try on: the model library files matching the search, with thumbnails (only while open). */
+function renderTryList(): void {
+  const list = document.querySelector<HTMLElement>('#ed-try-list');
+  if (!list || !document.querySelector<HTMLDetailsElement>('#ed-try')?.open) return;
+  const words = tryQuery.toLowerCase().split(/\s+/).filter(Boolean);
+  const found = vox0.filter((e) => words.every((w) => `${e.id} ${e.name} ${e.en} ${e.voxSetName ?? ''}`.toLowerCase().includes(w)));
+  const shown = found.slice(0, 150);
+  $('#ed-try-hint').textContent = found.length ? t('{n} 个模型，点一个套到当前对象上', { n: found.length }) : t('没有匹配的模型');
+  list.innerHTML = shown.map((e) => {
+    const url = thumbs.peek(`vox:${e.id}`);
+    return `<li data-try="${esc(e.id)}" class="${e.id === tryOn ? 'on' : ''}" title="${esc(`${e.name}\n${e.en}\n${e.voxSetName ?? ''}`)}"><span class="th" data-th="${esc(e.id)}">${url ? `<img alt="" src="${url}">` : e.sym}</span><span class="nm">${esc(e.name)}</span></li>`;
+  }).join('');
+  for (const e of shown) {
+    if (thumbs.peek(`vox:${e.id}`) !== undefined) continue;
+    void thumbs.request(`vox:${e.id}`, () => buildFor('vox', e, 0)).then((url) => {
+      const cell = list.querySelector<HTMLElement>(`[data-th="${CSS.escape(e.id)}"]`);
+      if (url && cell) cell.innerHTML = `<img alt="" src="${url}">`;
+    });
+  }
+}
+
+/** Try on an object: CDDA objects matching the search, by kind. */
+function renderTargetList(): void {
+  const list = document.querySelector<HTMLElement>('#ed-target-list');
+  if (!list) return;
+  const q = targetQuery.trim();
+  if (!q) {
+    list.innerHTML = `<li class="hint">${t('输入 id 或名称，比如 mon_zombie_cop、警察')}</li>`;
+    return;
+  }
+  const found = KIND_IDS.filter((k) => k !== 'vox').flatMap((k) => search(entriesOf(k), q).slice(0, 12).map((e) => ({ k, e }))).slice(0, 40);
+  list.innerHTML = found.length
+    ? found.map(({ k, e }) => `<li><button type="button" data-target-kind="${k}" data-target-id="${esc(e.id)}"><b>${esc(e.name)}</b><small>${KIND_NAME[k]} · ${esc(e.id)}</small></button></li>`).join('')
+    : `<li class="hint">${t('没有匹配的对象')}</li>`;
+}
+
+async function copyTrySnippet(button: HTMLElement): Promise<void> {
+  const entry = selected && entryOf(selected);
+  if (!selected || !entry || !tryOn) return;
+  const line = trySnippet(selected.kind, entry, tryOn);
+  try {
+    await navigator.clipboard.writeText(line);
+    button.textContent = t('已复制');
+    setTimeout(() => { button.textContent = t('复制映射条目'); }, 1500);
+  } catch {
+    window.prompt(t('复制这一行到 mapping.json：'), line);
+  }
+}
+
+/** Show the object from another source (sourcesOf key); the default one clears ?src=. */
+function setSource(key: string): void {
+  source = key === sources[0]?.key ? null : key;
+  variant = 0;
+  const url = new URL(location.href);
+  if (source) url.searchParams.set('src', source);
+  else url.searchParams.delete('src');
+  history.replaceState(null, '', url);
   void show();
 }
 
@@ -326,7 +576,10 @@ function renderToolbar(): void {
   const vbox = $('#ed-variants');
   vbox.hidden = variants < 2;
   vbox.innerHTML = `<label>${t('变体')}</label><button type="button" data-variant="-1">‹</button><span class="mono" style="padding:0 4px">${(variant % Math.max(1, variants)) + 1}/${variants}</span><button type="button" data-variant="1">›</button>`;
-  $('#ed-anims').hidden = true;
+  const clips = subject?.clips ?? [];
+  const abox = $('#ed-anims');
+  abox.hidden = !clips.length;
+  abox.innerHTML = `<label>${t('动画')}</label><button type="button" data-clip="" class="${subject?.playing ? '' : 'on'}">${t('静止')}</button>${clips.map(([label, clip]) => `<button type="button" data-clip="${esc(clip)}" class="${subject?.playing === clip ? 'on' : ''}">${esc(label)}</button>`).join('')}`;
 }
 
 // ── Events ──────────────────────────────────────────────────────────────────────────────
@@ -406,8 +659,44 @@ document.querySelector('.ed-toolbar')!.addEventListener('click', (e) => {
   } else if (b.dataset.variant) {
     variant = Math.max(0, variant + Number(b.dataset.variant));
     void show();
+  } else if (b.dataset.clip !== undefined && subject?.play) {
+    subject.play(b.dataset.clip || null);
+    renderToolbar();
   }
 });
+
+// Model choices in the inspector (renderPick): sources, Try on, Try on an object.
+$('#ed-inspector').addEventListener('click', (e) => {
+  const b = (e.target as HTMLElement).closest<HTMLElement>('button, li[data-try]');
+  if (!b) return;
+  if (b.dataset.source) setSource(b.dataset.source);
+  else if (b.dataset.try) setTry(b.dataset.try);
+  else if (b.dataset.tryCopy !== undefined) void copyTrySnippet(b);
+  else if (b.dataset.tryClear !== undefined) setTry(null);
+  else if (b.dataset.targetId && selected) {
+    // Show this library file on the chosen object.
+    const file = selected.id;
+    tryOpen = true;
+    select(b.dataset.targetKind as Tab, b.dataset.targetId);
+    setTry(file);
+  }
+});
+$('#ed-inspector').addEventListener('input', (e) => {
+  const el = e.target as HTMLInputElement;
+  if (el.id === 'ed-try-q') {
+    tryQuery = el.value;
+    renderTryList();
+  } else if (el.id === 'ed-target-q') {
+    targetQuery = el.value;
+    renderTargetList();
+  }
+});
+// <details> toggles do not bubble; listen while capturing.
+$('#ed-inspector').addEventListener('toggle', (e) => {
+  if ((e.target as HTMLElement).id !== 'ed-try') return;
+  tryOpen = (e.target as HTMLDetailsElement).open;
+  if (tryOpen) renderTryList();
+}, true);
 
 revealBranch();
 renderTree();
@@ -422,7 +711,13 @@ Object.assign(window, {
     get frames() { return stage.frames; },
     get selected() { return selected; },
     get measure() { return measure; },
-    get subject() { return subject && { source: subject.source, variants: subject.variants, notes: subject.notes }; },
+    get subject() { return subject && { source: subject.source, variants: subject.variants, notes: subject.notes, clips: subject.clips ?? [], playing: subject.playing ?? null }; },
+    play: (clip: string | null) => { subject?.play?.(clip); renderToolbar(); },
+    get sources() { return { list: sources.map(({ key, label }) => ({ key, label })), active: activeSource }; },
+    setSource: (key: string) => setSource(key),
+    get tryOn() { return tryOn; },
+    setTry: (key: string | null) => setTry(key),
+    trySnippet: () => (selected && tryOn && entryOf(selected) ? trySnippet(selected.kind, entryOf(selected)!, tryOn) : null),
     get status() { return selected ? status(selected.kind, entryOf(selected)!) : null; },
     get branch() { return branch; },
     get layout() { return { layout, cellSize }; },

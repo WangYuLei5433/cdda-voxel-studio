@@ -41,7 +41,10 @@ export function parseVoxelSet(text: string): VoxelSet {
 }
 
 /** voxelset.json text: two-space indent, one entry per line in "models" (as the starter kit writes it). */
-export function formatVoxelSet(set: VoxelSet): string {
+export const formatVoxelSet = (set: VoxelSet): string => formatModelSet(set);
+
+/** A set document (voxelset.json, meshset.json): two-space indent, one entry per line in "models". */
+export function formatModelSet(set: { models: object[] }): string {
   const { models, ...head } = set;
   const lines = Object.entries(head).map(([k, v]) => `  ${JSON.stringify(k)}: ${JSON.stringify(v)}`);
   const entries = models.map((m) => `    ${JSON.stringify(m).replace(/":/g, '": ').replace(/,"/g, ', "').replace(/^\{/, '{ ').replace(/\}$/, ' }')}`);
@@ -60,20 +63,29 @@ export function entryFiles(e: VoxEntry): string[] {
   return out;
 }
 
-export interface Resolution {
-  entry: VoxEntry;
+/** The fields every model set entry (voxel or mesh) binds objects with. */
+export interface BindEntry {
+  id?: string | string[];
+  builtin?: string;
+  material?: string;
+  file?: string;
+  files?: string[];
+}
+
+export interface Resolution<E extends BindEntry = VoxEntry> {
+  entry: E;
   /** How it was found: the object's own id, an id up its looks_like chain, or its built-in type. */
   via: 'id' | 'looks_like' | 'builtin';
   /** The id that matched (for looks_like) or the built-in type. */
   matched: string;
 }
 
-/** Lookup tables of a set: exact ids and built-in types (with and without material). */
-export class VoxelSetIndex {
-  private readonly byId = new Map<string, VoxEntry>();
-  private readonly byBuiltin = new Map<string, VoxEntry>();
+/** Lookup tables of a set (voxel or mesh): exact ids and built-in types (with and without material). */
+export class VoxelSetIndex<E extends BindEntry = VoxEntry> {
+  private readonly byId = new Map<string, E>();
+  private readonly byBuiltin = new Map<string, E>();
 
-  constructor(readonly set: VoxelSet) {
+  constructor(readonly set: { models: E[] }) {
     for (const e of set.models) {
       for (const id of [e.id ?? []].flat()) if (!this.byId.has(id)) this.byId.set(id, e);
       if (e.builtin) {
@@ -88,7 +100,7 @@ export class VoxelSetIndex {
    * override of the object's model type (with its material first), else null (the built-in
    * procedural model). `looksLike(id)` gives the next id up the chain.
    */
-  resolve(kind: VoxKind, id: string, looksLike: (id: string) => string | undefined, builtin?: { type: string; material?: string }): Resolution | null {
+  resolve(kind: VoxKind, id: string, looksLike: (id: string) => string | undefined, builtin?: { type: string; material?: string }): Resolution<E> | null {
     const own = this.byId.get(voxId(kind, id));
     if (own) return { entry: own, via: 'id', matched: id };
     const seen = new Set([id]);

@@ -18,7 +18,7 @@ export const KINDS: [Kind, string][] = [
   ['vpart', t('载具部件')],
   ['field', t('场地效果')],
   ['trap', t('陷阱')],
-  ['vox', t('体素模型')],
+  ['vox', t('模型库')],
 ];
 export const KIND_NAME = Object.fromEntries(KINDS) as Record<Kind, string>;
 
@@ -127,7 +127,7 @@ const TRAP: [string, string, (e: CatalogEntry) => boolean][] = [
   ['funnel', t('收集器'), (e) => /funnel|cistern|catch/.test(e.id)],
 ];
 
-// ── Voxel models: by set, then by built-in model group (src/vox/library.ts BUILTIN_GROUPS) ──
+// ── Model library (voxel and mesh sets): by set, then by built-in model group (src/vox/library.ts BUILTIN_GROUPS) ──
 const VOX_GROUP: Record<string, string> = {
   terrain: t('地形'), nature: t('自然地物'), furniture: t('家具'), creature: t('生物'), item: t('物品'), vehicle: t('载具'), effect: t('效果与标记'), object: t('按 id 绑定'), other: t('其他'),
 };

@@ -108,11 +108,12 @@ export const EMPTY_CATALOG: EditorCatalog = { ter: [], furn: [], item: [], monst
 export const KIND_LABEL: Record<CatalogKind, string> = { ter: t('地形'), furn: t('家具'), item: t('物品'), monster: t('生物'), vehicle: t('载具'), vpart: t('载具部件'), field: t('场地效果'), trap: t('陷阱') };
 
 /** How an object is shown, summarised for the list. */
-export type Status = 'voxel' | 'none' | 'library';
+export type Status = 'voxel' | 'mesh' | 'none' | 'library';
 
 export const STATUS_LABEL: Record<Status, string> = {
   voxel: t('体素模型'),
-  none: t('无体素模型'),
+  mesh: t('网格模型'),
+  none: t('无模型'),
   library: t('素材集文件'),
 };
 

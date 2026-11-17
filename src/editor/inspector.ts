@@ -1,5 +1,5 @@
 // The studio's right-hand panel: what the object is (its CDDA data), how it is shown (voxel
-// model or stand-in box) and its size. Plain DOM; main.ts owns the state.
+// model, mesh model or stand-in box) and its size. Plain DOM; main.ts owns the state.
 import { VOXELS_PER_TILE, WORLD } from '../render/world-scale';
 import { KIND_LABEL, STATUS_LABEL, type CatalogEntry, type CatalogKind, type Status } from './catalog';
 import type { Measure } from './stage';
@@ -64,6 +64,8 @@ export interface InspectorModel {
 export function renderInspector(host: HTMLElement, m: InspectorModel): void {
   const hint = m.status === 'voxel'
     ? t('这个模型来自体素素材集。要改它，请在 MagicaVoxel 里修改素材集里的文件；要换成别的模型，请修改 voxelset.json。')
-    : m.kind === 'vox' ? '' : t('还没有体素模型。长方体按 CDDA 数据估算尺寸，只作参照。');
+    : m.status === 'mesh'
+      ? t('这个模型来自网格素材集。要改它，请在建模软件（如 Blender）里修改文件；要换成别的模型或调整摆放，请修改 meshset.json。cataclysm-3d 不读网格素材集。')
+      : m.kind === 'vox' ? '' : t('还没有模型。长方体按 CDDA 数据估算尺寸，只作参照。');
   host.innerHTML = identity(m.kind, m.entry, m.branch) + shown(m.status, m.subject) + (hint ? `<section class="ed-sec"><p class="ed-hint">${hint}</p></section>` : '');
 }
