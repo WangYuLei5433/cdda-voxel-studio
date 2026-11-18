@@ -425,6 +425,35 @@ export function writeCatalog(root, catalog, info, names = {}) {
   return { meta, dir };
 }
 
+/**
+ * Every vehicle's part layout, for showing whole vehicles assembled from part models:
+ * { id: [[x, y, "part#variant"], …] }. A vehicle that copies another gets its parts first and
+ * appends its own (CDDA's vehicle_prototype::load inserts at the end); "part" and "parts"
+ * entries are flattened, fuel and other per-part settings dropped.
+ */
+export function vehicleLayouts(jsonRoot) {
+  const byName = new Map();
+  for (const file of walk(jsonRoot)) {
+    let data;
+    try { data = JSON.parse(readFileSync(file, 'utf8')); } catch { continue; }
+    for (const o of Array.isArray(data) ? data : [data]) if (o?.type === 'vehicle' && (o.id || o.abstract)) byName.set(o.id ?? o.abstract, o);
+  }
+  const own = (o) => (o.parts ?? []).flatMap((p) => [p.parts ?? [], p.part ? [p.part] : []].flat().map((q) => [p.x, p.y, typeof q === 'string' ? q : q.part]).filter(([x, y, q]) => typeof x === 'number' && typeof y === 'number' && typeof q === 'string'));
+  const layout = (o, depth = 0) => {
+    const base = o['copy-from'] && depth < 32 ? byName.get(o['copy-from']) : null;
+    return [...(base && base !== o ? layout(base, depth + 1) : []), ...own(o)];
+  };
+  return Object.fromEntries([...byName].filter(([, o]) => o.id).map(([id, o]) => [id, layout(o)]).sort(([a], [b]) => a.localeCompare(b)));
+}
+
+/** public/data/cdda/<version>/vehicle-layouts.json (loaded when a vehicle is shown). */
+export function writeVehicleLayouts(root, jsonRoot, version) {
+  const path = join(root, CATALOG_DIR, version, 'vehicle-layouts.json');
+  const layouts = vehicleLayouts(jsonRoot);
+  writeFileSync(path, `${JSON.stringify(layouts)}\n`);
+  return { path, count: Object.keys(layouts).length };
+}
+
 /** Studio-made names for what the official translation lacks: tools/editor/names/<lang>.json. */
 export function readExtraNames(root, lang) {
   const p = join(root, 'tools/editor/names', `${lang}.json`);
@@ -435,6 +464,7 @@ export function readExtraNames(root, lang) {
 // node tools/editor/catalog.mjs --write --version <name> --translations <release tag> [--commit <sha>]
 //   names for every vendor/translations/<tag>/<lang>.po (node tools/fetch-translations.mjs <tag>)
 // node tools/editor/catalog.mjs --missing <lang> --translations <tag>   untranslated names as JSON
+// node tools/editor/catalog.mjs --layouts --version <name>      only vehicle-layouts.json for that version
 if (import.meta.url === `file://${process.argv[1]}`) {
   const root = new URL('../../', import.meta.url).pathname;
   const arg = (name) => { const i = process.argv.indexOf(`--${name}`); return i > 0 ? process.argv[i + 1] : undefined; };
@@ -446,7 +476,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const poDir = tag ? join(root, 'vendor/translations', tag) : null;
   const langs = poDir && existsSync(poDir) ? readdirSync(poDir).filter((f) => f.endsWith('.po')).map((f) => f.slice(0, -3)) : [];
   const names = Object.fromEntries(langs.map((lang) => [lang, buildNames(c, readPo(join(poDir, `${lang}.po`)), readExtraNames(root, lang), lang)]));
-  if (arg('missing')) {
+  if (process.argv.includes('--layouts')) {
+    const { path, count } = writeVehicleLayouts(root, jsonRoot, arg('version') ?? '');
+    console.error('wrote', path, count, 'vehicles');
+  } else if (arg('missing')) {
     const lang = arg('missing');
     if (!names[lang]) throw new Error(`no ${lang}.po under ${poDir}`);
     const official = buildNames(c, readPo(join(poDir, `${lang}.po`)), {}, lang);
@@ -456,6 +489,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     if (process.argv.includes('--write')) {
       const { dir, meta } = writeCatalog(root, c, { version: arg('version'), commit: arg('commit'), translations: tag }, names);
       console.error('wrote', dir, meta.langs);
+      writeVehicleLayouts(root, jsonRoot, arg('version'));
     }
   }
 }

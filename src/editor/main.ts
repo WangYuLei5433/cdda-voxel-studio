@@ -4,7 +4,8 @@
 // its CDDA data, next to a wall and a person at cataclysm-3d's scale.
 import './editor.css';
 
-import { loadMeshSets, meshItemKey, meshLibraryItems, type LoadedMeshSet, type MeshItem } from '../mesh/library';
+import { fileUrl, loadMeshSets, meshItemKey, meshLibraryItems, type LoadedMeshSet, type MeshItem } from '../mesh/library';
+import type { VehicleInterior, VehicleLayouts, VehicleParts } from '../mesh/vehicle';
 import type { MeshEntry } from '../mesh/meshset';
 import { colorOf } from '../render/classify';
 import { WORLD } from '../render/world-scale';
@@ -14,7 +15,7 @@ import { applyNames, EMPTY_CATALOG, search, STATUS_LABEL, type CatalogEntry, typ
 import { lang, LANGS, listSep, setLang, t, type Lang } from './i18n';
 import { esc, measureHtml, renderInspector } from './inspector';
 import { Stage, type Measure, type View } from './stage';
-import { buildMeshSubject, buildPlaceholder, buildVoxSubject, placeholderSize, type MeshMatch, type Subject } from './subject';
+import { addInterior, buildMeshSubject, buildPlaceholder, buildVoxSubject, placeholderSize, type Assembler, type MeshMatch, type Subject } from './subject';
 import { ThumbnailCache } from './thumbs';
 import { branchOf, buildTree, inBranch, KIND_NAME, KINDS, pathOf, trail, type Kind, type TreeNode } from './tree';
 
@@ -47,6 +48,13 @@ const meshItems = new Map(meshLibraryItems(meshSets).map((i) => [i.key, i]));
 // Built-in model type per object (tools/classify/builtin-kinds.mjs), for sets that bind by type.
 const builtinKinds = catalogVersion && (voxelSets.length || meshSets.length) ? await fetchJson<BuiltinKinds>(`/data/cdda/${catalogVersion.id}/builtin-kinds.json`) : null;
 const matcher = new VoxMatcher(voxelSets, catalog, builtinKinds, voxItems);
+// Mesh sets with vehicle cabin parts ("vehicleParts" in meshset.json): whole-vehicle models with an
+// `interior` show those parts inside, placed by each vehicle's part layout (vehicle-layouts.json).
+const assemblers: Assembler[] = (await Promise.all(meshSets.filter((s) => typeof s.set.vehicleParts === 'string').map(async (s) => {
+  const vp = await fetchJson<VehicleParts>(fileUrl(s.base, s.set.vehicleParts as string));
+  return vp ? { set: s, vp } : null;
+}))).filter((a): a is Assembler => a !== null);
+const vehicleLayouts: VehicleLayouts = assemblers.length && catalogVersion ? (await fetchJson<VehicleLayouts>(`/data/cdda/${catalogVersion.id}/vehicle-layouts.json`)) ?? {} : {};
 const meshMatcher = new VoxMatcher<MeshEntry, LoadedMeshSet, MeshItem>(meshSets, catalog, builtinKinds, meshItems, meshItemKey);
 const voxMatch = (kind: Tab, id: string, v = 0) => (kind === 'vox' || !matcher.active ? null : matcher.find(kind, id, v));
 const meshMatch = (kind: Tab, id: string, v = 0) => (kind === 'vox' || !meshMatcher.active ? null : meshMatcher.find(kind, id, v));
@@ -354,12 +362,20 @@ function buildFor(kind: Tab, entry: CatalogEntry, v: number, from?: Source): Pro
   }
   const tintOf = (e: { tint?: unknown }) => (e.tint ? colorOf(entry.color) : undefined);
   if (from?.vm) return buildVoxSubject(from.vm.item, from.vm, tintOf(from.vm.entry));
-  if (from?.mm) return buildMeshSubject(from.mm.item, from.mm, tintOf(from.mm.entry));
+  if (from?.mm) return withInterior(kind, entry.id, from.mm.entry, buildMeshSubject(from.mm.item, from.mm, tintOf(from.mm.entry)));
   if (from?.format === 'box') return Promise.resolve(buildPlaceholder(kind as CatalogKind, entry));
   const found = modelMatch(kind, entry.id, v);
   if (found?.format === 'vox') return buildVoxSubject(found.vm.item, found.vm, found.vm.entry.tint ? colorOf(entry.color) : undefined);
-  if (found?.format === 'mesh') return buildMeshSubject(found.mm.item, found.mm, found.mm.entry.tint ? colorOf(entry.color) : undefined);
+  if (found?.format === 'mesh') return withInterior(kind, entry.id, found.mm.entry, buildMeshSubject(found.mm.item, found.mm, found.mm.entry.tint ? colorOf(entry.color) : undefined));
   return Promise.resolve(buildPlaceholder(kind as CatalogKind, entry));
+}
+
+/** A whole-vehicle model with an `interior`: its cabin parts from the set that models vehicle parts. */
+async function withInterior(kind: Tab, id: string, e: MeshEntry, built: Promise<Subject>): Promise<Subject> {
+  const subject = await built;
+  const interior = e.interior as VehicleInterior | undefined;
+  const a = kind === 'vehicle' && interior ? assemblers[0] : undefined;
+  return a && vehicleLayouts[id] ? addInterior(subject, a, vehicleLayouts[id], interior!) : subject;
 }
 
 /** Rebuild the shown object (after a selection or variant change). */
@@ -567,11 +583,13 @@ function setSource(key: string): void {
 
 // ── Toolbar ─────────────────────────────────────────────────────────────────────────────
 const VIEWS: [View, string][] = [['iso', t('斜视')], ['front', t('正面')], ['side', t('侧面')], ['top', t('俯视')]];
-const TOGGLES: [keyof Stage['options'], string][] = [['grid', t('网格')], ['wall', t('参照墙')], ['person', t('参照人')], ['bbox', t('包围盒')], ['wireframe', t('线框')]];
+const TOGGLES: [keyof Stage['options'], string][] = [['grid', t('网格')], ['wall', t('参照墙')], ['person', t('参照人')], ['bbox', t('包围盒')], ['wireframe', t('线框')], ['cutaway', t('剖开车顶')]];
+/** Does the shown object have a roof to lift off (vehicles)? */
+const hasRoof = () => { let found = false; subject?.object.traverse((o) => { if (o.name === 'roof') found = true; }); return found; };
 
 function renderToolbar(): void {
   $('#ed-views').innerHTML = `<label>${t('视角')}</label>${VIEWS.map(([v, l]) => `<button type="button" data-view="${v}" class="${v === view ? 'on' : ''}">${l}</button>`).join('')}`;
-  $('#ed-toggles').innerHTML = TOGGLES.map(([k, l]) => `<button type="button" data-toggle="${k}" class="${stage.options[k] ? 'on' : ''}">${l}</button>`).join('');
+  $('#ed-toggles').innerHTML = TOGGLES.filter(([k]) => k !== 'cutaway' || hasRoof()).map(([k, l]) => `<button type="button" data-toggle="${k}" class="${stage.options[k] ? 'on' : ''}">${l}</button>`).join('');
   const variants = subject?.variants.length ?? 0;
   const vbox = $('#ed-variants');
   vbox.hidden = variants < 2;

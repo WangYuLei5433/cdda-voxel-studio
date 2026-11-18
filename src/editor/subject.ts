@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 
 import { buildMesh, fileUrl, type BuiltMesh, type LoadedMeshSet, type MeshItem, type Placement } from '../mesh/library';
+import { assembleInterior, type LayoutPart, type VehicleInterior, type VehicleParts } from '../mesh/vehicle';
 import { isMeshFile, MESH_ROLES, missingClips, sizeFields, type MeshEntry } from '../mesh/meshset';
 import { colorOf, terrainKind } from '../render/classify';
 import { WORLD } from '../render/world-scale';
@@ -138,6 +139,20 @@ export async function buildMeshSubject(item: MeshItem, match?: MeshMatch, tint?:
   ];
   const files = entry.files?.length ? entry.files : [];
   return animate({ object: built.object, source: `${item.set.id}/${item.file}`, notes, variants: files }, built, entry.animations);
+}
+
+/** A mesh set with vehicle cabin parts, and its placement rules. */
+export interface Assembler {
+  set: LoadedMeshSet;
+  vp: VehicleParts;
+}
+
+/** Put a vehicle's cabin parts (seats, controls, dashboard…) inside a whole-vehicle model. */
+export async function addInterior(subject: Subject, a: Assembler, layout: LayoutPart[], interior: VehicleInterior): Promise<Subject> {
+  const { object, placed } = await assembleInterior(a.set, a.vp, layout, interior);
+  if (!placed) return subject;
+  subject.object.add(object);
+  return { ...subject, notes: [...subject.notes, t('车内：按 CDDA 的部件布局放了 {n} 个内饰部件（{set}）', { n: placed, set: a.set.set.name })] };
 }
 
 /**

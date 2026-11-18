@@ -15,6 +15,8 @@ export interface StageOptions {
   person: boolean;
   bbox: boolean;
   wireframe: boolean;
+  /** Hide nodes named `roof` (a vehicle's roof), to look inside. */
+  cutaway: boolean;
 }
 
 /** What the stage measured on the shown object, in tiles. */
@@ -40,7 +42,7 @@ export class Stage {
   private readonly subjectRoot = new THREE.Group();
   private readonly bboxHelper = new THREE.Box3Helper(new THREE.Box3(), 0xff9f1c);
   private subjectBox = new THREE.Box3();
-  options: StageOptions = { grid: true, wall: true, person: true, bbox: true, wireframe: false };
+  options: StageOptions = { grid: true, wall: true, person: true, bbox: true, wireframe: false, cutaway: false };
   /** Called after each frame (tests read the renderer's state). */
   onFrame: (() => void) | null = null;
   /** Called before each frame with the seconds since the last one (the shown model's animation). */
@@ -188,6 +190,7 @@ export class Stage {
     this.person.visible = this.options.person;
     this.bboxHelper.visible = this.options.bbox && !this.subjectBox.isEmpty();
     this.subjectRoot.traverse((o) => {
+      if (o.name === 'roof') o.visible = !this.options.cutaway;
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
       for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {

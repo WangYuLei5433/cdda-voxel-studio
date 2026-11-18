@@ -336,4 +336,6 @@ export const DICT: Record<string, [string, string]> = {
     'OBJ mesh: cataclysm-3d voxelizes it when it loads ({n} voxels per tile); shown here as the mesh itself',
     'OBJ-сетка: cataclysm-3d вокселизирует её при загрузке ({n} вокселей на клетку); здесь показана сама сетка',
   ],
+  '剖开车顶': ['Lift the roof', 'Снять крышу'],
+  '车内：按 CDDA 的部件布局放了 {n} 个内饰部件（{set}）': ['Inside: {n} cabin parts placed after the CDDA part layout ({set})', 'Салон: размещено {n} деталей салона по раскладке CDDA ({set})'],
 };
