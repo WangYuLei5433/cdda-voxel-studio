@@ -106,6 +106,7 @@ export class Stage {
         const m = new THREE.Mesh(tile, x === 0 && z === 0 ? centre : (x + z) % 2 ? dark : light);
         m.position.set(x, 0, z);
         m.receiveShadow = true;
+        m.userData.groundTile = true;
         this.grid.add(m);
       }
     }
@@ -164,12 +165,31 @@ export class Stage {
       if ((o as THREE.Mesh).isMesh && o.visible) box.expandByObject(o, true);
     });
     this.subjectBox = box;
+    this.openGround(box);
     this.bboxHelper.box.copy(box);
     this.bboxHelper.visible = this.options.bbox && !box.isEmpty();
     this.layoutReferences();
     if (box.isEmpty()) return { width: 0, depth: 0, height: 0, bottom: 0 };
     const size = box.getSize(new THREE.Vector3());
     return { width: size.x, depth: size.z, height: size.y, bottom: box.min.y };
+  }
+
+  /**
+   * A model that goes well below the ground (stairs down: the flight seen through the opening in
+   * the floor) opens the ground tiles under it, as the game draws no floor on such tiles.
+   */
+  private openGround(box: THREE.Box3): void {
+    const sinks = !box.isEmpty() && box.min.y < -0.5;
+    // A well two tiles across is centred on a tile corner: move the ground half a tile so its
+    // tiles line up with the well's.
+    const even = (n: number) => Math.round(n) % 2 === 0;
+    const size = sinks ? box.getSize(new THREE.Vector3()) : null;
+    this.grid.position.set(size && even(size.x) ? 0.5 : 0, 0, size && even(size.z) ? 0.5 : 0);
+    for (const tile of this.grid.children) {
+      if (!tile.userData.groundTile) continue;
+      const x = tile.position.x + this.grid.position.x, z = tile.position.z + this.grid.position.z;
+      tile.visible = !(sinks && x + 0.5 > box.min.x + 0.05 && x - 0.5 < box.max.x - 0.05 && z + 0.5 > box.min.z + 0.05 && z - 0.5 < box.max.z - 0.05);
+    }
   }
 
   /** Keep the wall and the person beside the object, whatever its size. */
